@@ -42,6 +42,8 @@ SensorData receivedData;
 
 // Function to send data to Firebase
 void sendData(SensorData data) {
+  Serial.printf("Classroom ID: %d :- Temperature: %.2f, Humidity: %.2f, Air Quality: %.2f, Pressure: %.2f, Current: %.2f, Voltage: %.2f\n", 
+                  data.boardId, data.temperature, data.humidity, data.gas, data.pressure, data.current, data.voltage);
   String path = "/devices" + String(data.boardId) + "/sensor";
 
   if (Firebase.setFloat(firebaseData, path + "/temperature", data.temperature)) {
@@ -82,30 +84,48 @@ void sendData(SensorData data) {
 }
 
 void setup() {
-  Serial.begin(115200);
-  mySerial.begin(9600, SERIAL_8N1, RXD2, TXD2); // Connect To ESP
+    Serial.begin(115200);
+    mySerial.begin(9600, SERIAL_8N1, RXD2, TXD2); // Connect To ESP
 
-  // Connect to Wi-Fi
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    Serial.println("Connecting to WiFi...");
-  }
-  Serial.println("Connected to WiFi!");
+    // Connect to Wi-Fi
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(1000);
+        Serial.println("Connecting to WiFi...");
+    }
+    Serial.println("Connected to WiFi!");
 
-  // Firebase configuration
-  firebaseConfig.api_key = API_KEY;    // Set the API key
-  firebaseAuth.user.email = USER_EMAIL; // Set user email
-  firebaseAuth.user.password = USER_PASSWORD; // Set user password
+    // Firebase configuration
+    firebaseConfig.api_key = API_KEY;              // Set the API key
+    firebaseConfig.database_url = DATABASE_URL;    // Add database URL
+    firebaseAuth.user.email = USER_EMAIL;          // Set user email
+    firebaseAuth.user.password = USER_PASSWORD;    // Set user password
 
-  // Initialize Firebase with user authentication
-  Firebase.reconnectNetwork(true);  // Reconnect automatically
-  Firebase.begin(&firebaseConfig, &firebaseAuth);
-  String base_path = "/devices";
-  String var = "$userId";
-  String val = "($userId === auth.uid)";
-  Firebase.setReadWriteRules(firebaseData, base_path, var, val, val, DATABASE_SECRET);
+    // Initialize Firebase with user authentication
+    Firebase.reconnectNetwork(true);  // Reconnect automatically
+    Firebase.begin(&firebaseConfig, &firebaseAuth);
+
+    // Check if Firebase is ready
+    if (Firebase.ready()) {
+        String base_path = "/devices";
+        String var = "$userId";
+        String val = "($userId === auth.uid)";
+        Firebase.setReadWriteRules(firebaseData, base_path, var, val, val, DATABASE_SECRET);
+        
+        // Initialize received data
+        receivedData.boardId = 0;
+        receivedData.temperature = 52;
+        receivedData.humidity = 52;
+        receivedData.gas = 52;
+        receivedData.pressure = 52;
+        receivedData.current = 58;
+        receivedData.voltage = 255;
+        sendData(receivedData);
+    } else {
+        Serial.println("Failed to initialize Firebase.");
+    }
 }
+
 
 void loop() {
   if (mySerial.available() > 8) {
