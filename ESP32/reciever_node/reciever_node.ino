@@ -7,35 +7,19 @@
 #include <DHT.h>
 #include <Adafruit_Sensor.h>
 
-// Library for the BMP280 sensor : Temperature and Pressure
-#include <SPI.h>
-#include <Wire.h>
-#include <Adafruit_BMP280.h>
+// Library for the BMP180 sensor : Temperature and Pressure
+#include <Adafruit_BMP085.h>
 
 // Library for the MQ135 sensor : Air/Gas Quality
 #include <MQ135.h>
 
-#include <Arduino.h>
-#include <driver/ledc.h>
+// Board ID [Just increase the number]
+#define BOARD_ID 2
 
-// Fan
-#define PWM_PIN 18
-#define PWM_CHANNEL 0
-#define PWM_FREQUENCY 5000
-#define PWM_RESOLUTION 2
-
-#define BOARD_ID 3 // Board ID [Just increase the number]
-
-// Define: DHT22 Sensor Pins
+// Define: DHT11/22 Sensor Pins
 #define DHTPIN 5
-#define DHTTYPE DHT22
-
-// Define: BMP280 Sensor Pins
-#define BMP_SCK 13
-#define BMP_MISO 12
-#define BMP_MOSI 11
-#define BMP_CS 10
-#define SEALEVELPRESSURE_HPA (1013.25)
+#define DHTTYPE DHT11
+// #define DHTTYPE DHT22
 
 // Define: MQ135 Sensor Pins
 #define MQ135PIN 36
@@ -43,29 +27,18 @@
 // Define: ACS712 Sensor Pins
 #define ACS712PIN 32
 
-// Wi-Fi Credentials
-#define WIFI_SSID "ESP_EF1089"
-// #define WIFI_SSID "GNXS-2.4G-31C3F0"
-// #define WIFI_SSID "kl.rab_3490"
+// Control 4 Relay
+#define RELAY_PIN1 25
+#define RELAY_PIN2 26
+#define RELAY_PIN3 27
+#define RELAY_PIN4 33
 
 DHT dht(DHTPIN, DHTTYPE);  // Define the DHT sensor type and pin
-Adafruit_BMP280 bmp;       // Define the BMP280 sensor
+Adafruit_BMP085 bmp;       // Define the BMP280 sensor
 MQ135 mq135(MQ135PIN);     // Define the MQ135 sensor
 
-int32_t getWiFiChannel(const char *ssid) {
-  if (int32_t n = WiFi.scanNetworks()) {
-    for (uint8_t i=0; i<n; i++) {
-      if (!strcmp(ssid, WiFi.SSID(i).c_str())) {
-        return WiFi.channel(i);
-      }
-    }
-  }
-  return 0;
-}
-
 // MAC Address of the receiver
-// uint8_t centralReceiver[] = { 0x10, 0x06, 0x1c, 0xF6, 0x8a, 0x08 };  // Home Wi-Fi
-uint8_t centralReceiver[] = { 0xd8, 0xbc, 0x38, 0xe3, 0x04, 0xa4 };
+uint8_t centralReceiver[] = { 0xD8, 0x13, 0x2a, 0xef, 0x10, 0x88 };
 
 // Structure to send data
 struct SensorData {
@@ -84,8 +57,10 @@ SensorData myData;
 // Structure to receive data
 struct FanData {
   int boardId;
-  int fanSpeed;
-  bool lightStatus;
+  bool relay1;
+  bool relay2;
+  bool relay3;
+  bool relay4;
 };
 
 // Function to read current from ACS712 sensor
@@ -96,33 +71,33 @@ float getCurrentAC() {
   return current;
 }
 
-// // Function to read data from sensor
-// SensorData readSensorData() {
-//   SensorData data;
-//   data.boardId = BOARD_ID;
-//   data.sensorType = 1;
-//   // data.temperature = dht.readTemperature();
-//   // data.humidity = dht.readHumidity();
+// Function to read data from sensor
+SensorData readSensorData() {
+  SensorData data;
+  data.boardId = BOARD_ID;
+  data.sensorType = 1;
+  data.temperature = dht.readTemperature();
+  data.humidity = dht.readHumidity();
 
-//   // // Check if readings are valid
-//   // if (isnan(data.temperature) || isnan(data.humidity)) {
-//   //   Serial.println("Failed to read from DHT sensor!");
-//   //   data.temperature = 0.0;
-//   //   data.humidity = 0.0;
-//   // }
+  // Check if readings are valid
+  if (isnan(data.temperature) || isnan(data.humidity)) {
+    Serial.println("Failed to read from DHT sensor!");
+    data.temperature = 0.0;
+    data.humidity = 0.0;
+  }
 
-//   // data.gas = mq135.getCorrectedPPM(data.temperature, data.humidity);
-//   // data.pressure = bmp.readPressure() / 100000.0F;
-//   // data.current = getCurrentAC();
-//   data.temperature = random(0,100);
-//   data.humidity = random(0,100);
-//   data.gas = random(0,100);
-//   data.pressure = 1;
-//   data.current = random(0,100);
-//   data.voltage = 245;  // Voltage is constant
+  data.gas = mq135.getCorrectedPPM(data.temperature, data.humidity);
+  data.pressure = bmp.readPressure() / 100000.0F;
+  data.current = getCurrentAC();
+  data.temperature = random(0, 100);
+  data.humidity = random(0, 100);
+  data.gas = random(0, 100);
+  data.pressure = 1;
+  data.current = random(0, 100);
+  data.voltage = 245;  // Voltage is constant
 
-//   return data;
-// }
+  return data;
+}
 
 // Callback when data is received
 void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
@@ -131,13 +106,26 @@ void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
     esp_now_send(centralReceiver, (uint8_t *)"pong", 4);
   }
 
+  // Ensure the incoming data length is correct
+  if (len != sizeof(FanData)) {
+    Serial.println("Received data length mismatch");
+    return;
+  }
+
   FanData data;
   memcpy(&data, incomingData, sizeof(data));
+  // Check if the data is from the central receiver and intended for this board
   if (memcmp(mac, centralReceiver, 6) == 0 && data.boardId == BOARD_ID) {
-    Serial.printf("Fan Speed: %d\n", data.fanSpeed);
-    ledcWrite(PWM_CHANNEL, data.fanSpeed);
-    Serial.printf("Light Status: %s\n", data.lightStatus);
+    setRelayState(RELAY_PIN1, data.relay1);
+    setRelayState(RELAY_PIN2, data.relay2);
+    setRelayState(RELAY_PIN3, data.relay3);
+    setRelayState(RELAY_PIN4, data.relay4);
   }
+}
+
+// Helper function to set relay state
+void setRelayState(uint8_t relayPin, bool state) {
+  digitalWrite(relayPin, state ? HIGH : LOW);
 }
 
 // Callback when data is sent
@@ -150,23 +138,30 @@ void setup() {
   // Initialize serial monitor
   Serial.begin(115200);
 
-  // Configure PWM channel and attach it to the GPIO
-  ledcAttach(PWM_PIN, PWM_FREQUENCY, PWM_RESOLUTION);  // Setup PWM channel
-  
+  // Initialize relay control pins
+  pinMode(RELAY_PIN1, OUTPUT);
+  pinMode(RELAY_PIN2, OUTPUT);
+  pinMode(RELAY_PIN3, OUTPUT);
+  pinMode(RELAY_PIN4, OUTPUT);
+
+  // Turn off all relays at startup
+  digitalWrite(RELAY_PIN1, LOW);
+  digitalWrite(RELAY_PIN2, LOW);
+  digitalWrite(RELAY_PIN3, LOW);
+  digitalWrite(RELAY_PIN4, LOW);
+
   // Initialize the DHT sensor
-  // dht.begin();
+  dht.begin();
 
   // Initialize the BMP280 sensor
-  // if (!bmp.begin(0x76)) {
-  //   Serial.println("Could not find a valid BMP280 sensor, check wiring!");
-  //   while (1)
-  //     ;
-  // }
-  // bmp.setSampling(Adafruit_BMP280::MODE_NORMAL, Adafruit_BMP280::SAMPLING_X2, Adafruit_BMP280::SAMPLING_X16, Adafruit_BMP280::FILTER_X16, Adafruit_BMP280::STANDBY_MS_500);  // Operating Mode, Temp. oversampling, Pressure oversampling, Filtering, Standby time.
+  if (!bmp.begin()) {
+    Serial.println("Could not find a valid BMP280 sensor, check wiring!");
+    while (1)
+      ;
+  }
 
   // Set device as a Wi-Fi Station
   WiFi.mode(WIFI_STA);
-  
 
   // Init ESP-NOW
   if (esp_now_init() != ESP_OK) {
@@ -180,7 +175,7 @@ void setup() {
   esp_now_peer_info_t peerInfo;
   memset(&peerInfo, 0, sizeof(peerInfo));
   memcpy(peerInfo.peer_addr, centralReceiver, 6);
-  peerInfo.channel = getWiFiChannel(WIFI_SSID);  // Set your Wi-Fi channel
+  peerInfo.channel = 0;  // Set your Wi-Fi channel
   peerInfo.encrypt = false;
 
   // Add peer
@@ -194,14 +189,7 @@ void setup() {
 
 void loop() {
   // Read sensor data
-  myData.boardId = BOARD_ID;
-  myData.sensorType = 1;
-  myData.temperature = random(0, 100);
-  myData.humidity = random(0, 100);
-  myData.gas = random(0, 100);
-  myData.pressure = 1;
-  myData.current = random(0, 100);
-  myData.voltage = 245;  // Voltage is constant
+  myData = readSensorData();
 
   // Send sensor data
   esp_now_send(centralReceiver, (uint8_t *)&myData, sizeof(myData));
