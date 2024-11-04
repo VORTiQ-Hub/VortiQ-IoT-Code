@@ -143,7 +143,7 @@ void OnDataRecv(uint8_t* mac_addr, uint8_t* incomingData, uint8_t len) {
 
   // Print data to Serial Monitor
   Serial.printf("Classroom ID: %d :- Temperature: %.2f, Humidity: %.2f, Air Quality: %.2f, Pressure: %.2f, Current: %.2f, Voltage: %.2f\n", data.boardId, data.temperature, data.humidity, data.gas, data.pressure, data.current, data.voltage);
-  if (mySerial.available() != 0) {
+  if (mySerial.available()) {
     mySerial.write((uint8_t*)&data, sizeof(data));
     delay(100); // Small delay between sending packets
     Serial.println("Data sent to receiver");
@@ -225,12 +225,4 @@ void loop() {
       peers[i].active = false;
     }
   }
-
-  if (mySerial.available() > 5) {
-    Serial.println("Data available on Serial");
-    mySerial.readBytes((char*)&myData, sizeof(myData));
-    
-    // Send the received data to reciever node
-    sendData(myData);
-  } 
 }

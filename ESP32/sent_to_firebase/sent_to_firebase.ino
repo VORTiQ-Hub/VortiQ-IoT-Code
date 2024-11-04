@@ -165,7 +165,7 @@ void loop() {
     Serial.println("Data available on Serial");
     mySerial.readBytes((char*)&receivedData, sizeof(receivedData));
     sendData(receivedData);
-  } else {
-    Serial.println("No data received");
-  }
+  } 
+
+  delay(100);
 }
