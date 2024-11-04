@@ -164,13 +164,7 @@ void loop() {
   if (mySerial.available() > 8) {
     Serial.println("Data available on Serial");
     mySerial.readBytes((char*)&receivedData, sizeof(receivedData));
-    
-    // Only send the data to Firebase if boardId is not 0
-    if (receivedData.boardId != 0) {
-      sendData(receivedData);
-    } else {
-      Serial.println("Invalid data received: boardId is 0, not sending to Firebase");
-    }
+    sendData(receivedData);
   } else {
     Serial.println("No data received");
   }
