@@ -147,6 +147,11 @@ void OnDataRecv(uint8_t* mac_addr, uint8_t* incomingData, uint8_t len) {
     mySerial.write((uint8_t*)&data, sizeof(data));
     delay(100); // Small delay between sending packets
     Serial.println("Data sent to receiver");
+    mySerial.readBytes((char*)&myData, sizeof(myData));
+    delay(100); 
+    
+    // Send the received data to reciever node
+    sendData(myData);
   } else {
     Serial.println("Data not sent");
   }
