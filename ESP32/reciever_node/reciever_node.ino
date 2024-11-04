@@ -14,7 +14,7 @@
 #include <MQ135.h>
 
 // Board ID [Just increase the number]
-#define BOARD_ID 2
+#define BOARD_ID 201
 
 // Define: DHT11/22 Sensor Pins
 #define DHTPIN 5
@@ -22,15 +22,15 @@
 // #define DHTTYPE DHT22
 
 // Define: MQ135 Sensor Pins
-#define MQ135PIN 36
+#define MQ135PIN 35
 
 // Define: ACS712 Sensor Pins
 #define ACS712PIN 32
 
 // Control 4 Relay
-#define RELAY_PIN1 25
+#define RELAY_PIN1 27
 #define RELAY_PIN2 26
-#define RELAY_PIN3 27
+#define RELAY_PIN3 25
 #define RELAY_PIN4 33
 
 DHT dht(DHTPIN, DHTTYPE);  // Define the DHT sensor type and pin
@@ -38,7 +38,7 @@ Adafruit_BMP085 bmp;       // Define the BMP280 sensor
 MQ135 mq135(MQ135PIN);     // Define the MQ135 sensor
 
 // MAC Address of the receiver
-uint8_t centralReceiver[] = { 0xD8, 0x13, 0x2a, 0xef, 0x10, 0x88 };
+uint8_t centralReceiver[] = { 0x88, 0x13, 0xbf, 0x63, 0xce, 0xb0 };
 
 // Structure to send data
 struct SensorData {
@@ -55,7 +55,7 @@ struct SensorData {
 SensorData myData;
 
 // Structure to receive data
-struct FanData {
+struct RelayData {
   int boardId;
   bool relay1;
   bool relay2;
@@ -107,12 +107,12 @@ void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
   }
 
   // Ensure the incoming data length is correct
-  if (len != sizeof(FanData)) {
+  if (len != sizeof(RelayData)) {
     Serial.println("Received data length mismatch");
     return;
   }
 
-  FanData data;
+  RelayData data;
   memcpy(&data, incomingData, sizeof(data));
   // Check if the data is from the central receiver and intended for this board
   if (memcmp(mac, centralReceiver, 6) == 0 && data.boardId == BOARD_ID) {

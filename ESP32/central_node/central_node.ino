@@ -35,12 +35,14 @@ struct SensorData {
 };
 
 // Structure for sending fan control data
-struct FanData {
-  int id;
-  int fanSpeed;
-  bool lightStatus;
+struct RelayData {
+  int boardId;
+  bool relay1;
+  bool relay2;
+  bool relay3;
+  bool relay4;
 };
-FanData myData;
+RelayData myData;
 
 // Print the received data in HEX
 void printByteArray(const char* label, unsigned char* array, int length) {
@@ -74,13 +76,10 @@ void addPeer(uint8_t* mac_addr, int boardId) {
 }
 
 // Send fan speed and light status to receiver node
-void sendData(int boardID, int fanSpeed, bool lightStatus ) {
-  myData.id = boardID;
-  myData.fanSpeed = fanSpeed;
-  myData.lightStatus = lightStatus;
-  Serial.printf("Data Sent To Board: %d\t Speed: %d & Light Status: %s\n", boardID, fanSpeed, lightStatus);
-  if (getPeer(boardID) != NULL) {
-    esp_now_send(getPeer(boardID), (uint8_t*)&myData, sizeof(myData));
+void sendData(RelayData &data) {
+  Serial.printf("Data Sent To Board: %d\t Relay 1: %s\t Relay 2: %s\t Relay 3: %s\t Relay 4: %s \n", data.boardId, data.relay1, data.relay2, data.relay3, data.relay4);
+  if (getPeer(data.boardId) != NULL) {
+    esp_now_send(getPeer(data.boardId), (uint8_t*)&myData, sizeof(myData));
   }
 }
 
@@ -225,5 +224,15 @@ void loop() {
       Serial.printf("Peer %d is disconnected\n", peers[i].boardId);
       peers[i].active = false;
     }
+  }
+
+  if (mySerial.available() > 5) {
+    Serial.println("Data available on Serial");
+    mySerial.readBytes((char*)&myData, sizeof(myData));
+    
+    // Send the received data to reciever node
+    sendData(myData);
+  } else {
+    Serial.println("No data received");
   }
 }
