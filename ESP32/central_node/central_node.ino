@@ -232,7 +232,5 @@ void loop() {
     
     // Send the received data to reciever node
     sendData(myData);
-  } else {
-    Serial.println("No data received");
-  }
+  } 
 }
