@@ -111,6 +111,7 @@ void sendData(SensorData data) {
     Serial.println("Failed to get relay 4 value: " + firebaseData.errorReason());
   }
   mySerial.write(((uint8_t*)&relay), sizeof(relay));
+  delay(2000);
 
 }
 
