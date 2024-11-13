@@ -3,11 +3,11 @@
 #include <esp_wifi.h>
 #include <WiFi.h>
 #include <HardwareSerial.h>
+#include <ArduinoJson.h>
 
 // Connection To ESP
 #define RXD2 17
 #define TXD2 16
-HardwareSerial mySerial(2); 
 
 // Define the maximum number of peers
 #define MAX_PEERS 4
@@ -22,27 +22,11 @@ typedef struct {
 } peer_t;
 peer_t peers[MAX_PEERS];
 
-// Structure for receiving sensor data
-struct SensorData {
-  int boardId;
-  int sensorType;
-  float temperature;
-  float humidity;
-  float gas;
-  float pressure;
-  float current;
-  float voltage;
-};
-
-// Structure for sending fan control data
-struct RelayData {
-  int boardId;
-  bool relay1;
-  bool relay2;
-  bool relay3;
-  bool relay4;
-};
-RelayData myData;
+// JSON Data Structure
+StaticJsonDocument<256> doc_from_receiver;
+StaticJsonDocument<256> doc_to_receiver;
+String recv_jsondata;
+String send_jsondata;
 
 // Print the received data in HEX
 void printByteArray(const char* label, unsigned char* array, int length) {
@@ -72,14 +56,6 @@ void addPeer(uint8_t* mac_addr, int boardId) {
       }
       break;
     }
-  }
-}
-
-// Send fan speed and light status to receiver node
-void sendData(RelayData &data) {
-  Serial.printf("Data Sent To Board: %d\t Relay 1: %s\t Relay 2: %s\t Relay 3: %s\t Relay 4: %s \n", data.boardId, data.relay1, data.relay2, data.relay3, data.relay4);
-  if (getPeer(data.boardId) != NULL) {
-    esp_now_send(getPeer(data.boardId), (uint8_t*)&myData, sizeof(myData));
   }
 }
 
@@ -127,34 +103,33 @@ bool isPeerInList(uint8_t* mac_addr) {
 
 // Callback when data is recieved
 void OnDataRecv(uint8_t* mac_addr, uint8_t* incomingData, uint8_t len) {
-  SensorData data;
-  memcpy(&data, incomingData, sizeof(SensorData));
-
-  if (!isPeerInList(mac_addr)) {
-    addPeer(mac_addr, data.boardId);
-  }
-
-  for (int i = 0; i < MAX_PEERS; i++) {
-    if (memcmp(peers[i].peer_addr, mac_addr, 6) == 0) {
-      peers[i].mills = millis();
-      break;
+  char * buff = (char *)incomingData;
+  recv_jsondata = String(buff);
+  Serial.print("Received Data: ");
+  Serial.println(recv_jsondata);
+  DeserializationError error = deserializeJson(doc_from_receiver, recv_jsondata);
+  int boardId = doc_from_receiver["boardId"];
+  if (!error) {
+    if (!isPeerInList(mac_addr)) {
+      addPeer(mac_addr, boardId);
     }
-  }
-
-  // Print data to Serial Monitor
-  Serial.printf("Classroom ID: %d :- Temperature: %.2f, Humidity: %.2f, Air Quality: %.2f, Pressure: %.2f, Current: %.2f, Voltage: %.2f\n", data.boardId, data.temperature, data.humidity, data.gas, data.pressure, data.current, data.voltage);
-  if (mySerial.available()) {
-    mySerial.write((uint8_t*)&data, sizeof(data));
-    delay(100); // Small delay between sending packets
-    Serial.println("Data sent to receiver");
-    mySerial.readBytes((char*)&myData, sizeof(myData));
-    delay(100); 
     
-    // Send the received data to reciever node
-    sendData(myData);
+    for (int i = 0; i < MAX_PEERS; i++) {
+      if (memcmp(peers[i].peer_addr, mac_addr, 6) == 0) {
+        peers[i].mills = millis();
+        break;
+      }
+    }
+
+    Serial.print("Serilising To Serial2: ");
+    serializeJson(doc_from_receiver, send_jsondata);
+    Serial2.println(send_jsondata);
   } else {
-    Serial.println("Data not sent");
-  }
+    Serial.print(F("deserializeJson() failed: "));
+    Serial.println(error.c_str());
+    return;
+  }  
+
 }
 
 // callback when data is sent
@@ -180,9 +155,7 @@ void readMacAddress(){
   uint8_t baseMac[6];
   esp_err_t ret = esp_wifi_get_mac(WIFI_IF_STA, baseMac);
   if (ret == ESP_OK) {
-    Serial.printf("%02x:%02x:%02x:%02x:%02x:%02x\n",
-                  baseMac[0], baseMac[1], baseMac[2],
-                  baseMac[3], baseMac[4], baseMac[5]);
+    Serial.printf("%02x:%02x:%02x:%02x:%02x:%02x\n", baseMac[0], baseMac[1], baseMac[2], baseMac[3], baseMac[4], baseMac[5]);
   } else {
     Serial.println("Failed to read MAC address");
   }
@@ -190,32 +163,33 @@ void readMacAddress(){
 
 // Setup function
 void setup() {
+  // Initialising UART Communication
   Serial.begin(115200);
-  mySerial.begin(9600, SERIAL_8N1, RXD2, TXD2); // Connect To ESP
+  Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2); // Connect To ESP
 
-  // Init WiFi
+  // Initialising WiFi
   WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
   
+  // Print the MAC address of the ESP32
   Serial.print("ESP32 Board MAC Address: ");
   readMacAddress();
 
-  // Init ESP-NOW
+  // Initialising ESP-NOW
   if (esp_now_init() != ESP_OK) {
     Serial.println("Error initializing ESP-NOW");
     return;
   }
 
-  // Init the peer list
+  // Initialising the peer list to empty
   for (int i = 0; i < MAX_PEERS; i++) {
     peers[i].active = false;
     peers[i].boardId = -1;
     peers[i].mills = 0;
   }
 
-  esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));  // Register the callback function to receive the data
-
-  esp_now_register_send_cb(OnDataSent);  // Register the callback function to send the data
+  // Defining Callback Functions
+  esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
+  esp_now_register_send_cb(OnDataSent);
 
   Serial.println("");
   Serial.println("Setup complete");
@@ -228,6 +202,30 @@ void loop() {
     if (peers[i].active && !isPeerConnected(peers[i].boardId)) {
       Serial.printf("Peer %d is disconnected\n", peers[i].boardId);
       peers[i].active = false;
+    }
+  }
+
+  // Check if there is any data available to read
+  if (Serial2.available()) {
+    // Read the data from the serial port
+    String data = Serial2.readStringUntil('\n');
+
+    // Serializing the data to JSON
+    serializeJson(doc_to_receiver, data);
+    Serial.println(data);
+
+    // Send the data to the receiver
+    int boardID = doc_to_receiver["boardId"];
+    uint8_t* mac = getPeer(boardID);
+    if (mac != NULL) {
+      esp_err_t result = esp_now_send(mac, (uint8_t*)data.c_str(), data.length());
+      if (result == ESP_OK) {
+        Serial.println("Sent with success");
+      } else {
+        Serial.println("Error sending the data");
+      }
+    } else {
+      Serial.println("Peer not found");
     }
   }
 }

@@ -3,11 +3,11 @@
 #include <addons/TokenHelper.h>
 #include <addons/RTDBHelper.h>
 #include <HardwareSerial.h>
+#include <ArduinoJson.h>
 
-// Connection To ESP
+// Connection To Central ESP
 #define RXD2 16
 #define TXD2 17
-HardwareSerial mySerial(2); 
 
 // Network credentials
 const char* ssid1 = "GNXS-2.4G-31C3F0";
@@ -28,28 +28,11 @@ FirebaseData firebaseData;
 FirebaseAuth firebaseAuth;
 FirebaseConfig firebaseConfig;
 
-// Structure for receiving sensor data 
-struct SensorData {
-  int boardId;
-  int sensorType;
-  float temperature;
-  float humidity;
-  float gas;
-  float pressure;
-  float current;
-  float voltage;
-};
-
-SensorData receivedData;
-
-// Structure to receive data
-struct RelayData {
-  int boardId;
-  bool relay1;
-  bool relay2;
-  bool relay3;
-  bool relay4;
-};
+// JSON Data Structure
+String recv_jsondata;
+String send_jsondata;
+StaticJsonDocument<256> doc_from_central;
+StaticJsonDocument<256> doc_to_central;
 
 // Function to connect to Wi-Fi
 void connectWiFi(const char* ssid, const char* password) {
@@ -74,50 +57,69 @@ void connectWiFi(const char* ssid, const char* password) {
   }
 }
 
-// Function to send data to & fetch data from Firebase 
-void sendData(SensorData data) {
-  Serial.printf("Classroom ID: %d :- Temperature: %.2f, Humidity: %.2f, Air Quality: %.2f, Pressure: %.2f, Current: %.2f, Voltage: %.2f\n", data.boardId, data.temperature, data.humidity, data.gas, data.pressure, data.current, data.voltage);
-  String path = "/devices/" + String(data.boardId);
+void sentToFirebase(int boardId, float temperature, float humidity, float airQuality, float pressure, float current, float voltage) {
+  String path = "/devices/" + String(boardId)+ "/sensor";
+  FirebaseJson json;
+  json.set("temperature", temperature);
+  json.set("humidity", humidity);
+  json.set("airQuality", airQuality);
+  json.set("pressure", pressure);
+  json.set("current", current);
+  json.set("voltage", voltage);
+  if (Firebase.setJSON(firebaseData, path, json)) {
+    Serial.println("Data sent successfully.");
+  } else {
+    Serial.print("Failed to send data: ");
+    Serial.println(firebaseData.errorReason());
+  }
+}
 
-  // Sent To Firebase
-  Serial.println(Firebase.setFloat(firebaseData, path + "/sensor/temperature", data.temperature) ? "Temperature sent successfully" : "Failed to send temperature: " + firebaseData.errorReason());
-  Serial.println(Firebase.setFloat(firebaseData, path + "/sensor/humidity", data.humidity) ? "Humidity sent successfully" : "Failed to send humidity: " + firebaseData.errorReason());
-  Serial.println(Firebase.setFloat(firebaseData, path + "/sensor/gas", data.gas) ? "Gas sent successfully" : "Failed to send gas: " + firebaseData.errorReason());
-  Serial.println(Firebase.setFloat(firebaseData, path + "/sensor/pressure", data.pressure) ? "Pressure sent successfully" : "Failed to send pressure: " + firebaseData.errorReason());
-  Serial.println(Firebase.setFloat(firebaseData, path + "/sensor/current", data.current) ? "Current sent successfully" : "Failed to send current: " + firebaseData.errorReason());
-  Serial.println(Firebase.setFloat(firebaseData, path + "/sensor/voltage", data.current) ? "Voltage sent successfully" : "Failed to send voltage: " + firebaseData.errorReason());
+void getFromFirebase(int boardId) {
+  String path = "/devices/" + String(boardId) + "/relay";
+  if (Firebase.getJSON(firebaseData, path)) {
+    Serial.println("Data received successfully.");
 
-  // Receive From Firebase
-  RelayData relay; 
-  relay.boardId = data.boardId;
-  if (Firebase.getBool(firebaseData, path + "/relay/1")) {
-    relay.relay1 = firebaseData.boolData();
-  } else {
-    Serial.println("Failed to get relay 1 value: " + firebaseData.errorReason());
-  }
-  if (Firebase.getBool(firebaseData, path + "/relay/2")) {
-    relay.relay2 = firebaseData.boolData();
-  } else {
-    Serial.println("Failed to get relay 2 value: " + firebaseData.errorReason());
-  }
-  if (Firebase.getBool(firebaseData, path + "/relay/3")) {
-    relay.relay3 = firebaseData.boolData();
-  } else {
-    Serial.println("Failed to get relay 3 value: " + firebaseData.errorReason());
-  }
-  if (Firebase.getBool(firebaseData, path + "/relay/4")) {
-    relay.relay4 = firebaseData.boolData();
-  } else {
-    Serial.println("Failed to get relay 4 value: " + firebaseData.errorReason());
-  }
-  mySerial.write(((uint8_t*)&relay), sizeof(relay));
-  delay(2000);
+    // Convert firebaseData to FirebaseJson to access JSON data
+    FirebaseJson json = firebaseData.jsonObject();
+    FirebaseJsonData jsonData;
 
+    // Declare variables for relay pins
+    bool relayPin1, relayPin2, relayPin3, relayPin4;
+
+    // Use json.get to retrieve boolean values based on the JSON structure
+    if (json.get(jsonData, "1") && jsonData.typeNum == FirebaseJson::JSON_BOOL) {
+      relayPin1 = jsonData.boolValue;
+    }
+    if (json.get(jsonData, "2") && jsonData.typeNum == FirebaseJson::JSON_BOOL) {
+      relayPin2 = jsonData.boolValue;
+    }
+    if (json.get(jsonData, "3") && jsonData.typeNum == FirebaseJson::JSON_BOOL) {
+      relayPin3 = jsonData.boolValue;
+    }
+    if (json.get(jsonData, "4") && jsonData.typeNum == FirebaseJson::JSON_BOOL) {
+      relayPin4 = jsonData.boolValue;
+    }
+
+    // Assign to doc_to_central (assuming doc_to_central is ArduinoJson's JsonDocument or similar)
+    doc_to_central["relayPin1"] = relayPin1;
+    doc_to_central["relayPin2"] = relayPin2;
+    doc_to_central["relayPin3"] = relayPin3;
+    doc_to_central["relayPin4"] = relayPin4;
+
+    // Serialize the JSON to send
+    serializeJson(doc_to_central, send_jsondata);
+    Serial2.println(send_jsondata);  // Send data via Serial2
+    send_jsondata = "";  // Clear the string buffer after sending
+
+  } else {
+    Serial.print("Failed to get data: ");
+    Serial.println(firebaseData.errorReason());
+  }
 }
 
 void setup() {
   Serial.begin(115200);
-  mySerial.begin(9600, SERIAL_8N1, RXD2, TXD2); // Connect To ESP
+  Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2); // Connect To ESP
 
   // Connect to Wi-Fi
   // Attempt to connect to ssid1 first
@@ -128,7 +130,6 @@ void setup() {
     Serial.println("Attempting to connect to the backup SSID...");
     connectWiFi(ssid2, password2);
   }
-  Serial.println("Connected to WiFi!");
 
   // Firebase configuration
   firebaseConfig.api_key = API_KEY;              // Set the API key
@@ -145,28 +146,29 @@ void setup() {
     String base_path = "/devices";
     String var = "$userId";
     String val = "($userId === auth.uid)";
-    Firebase.setReadWriteRules(firebaseData, base_path, var, val, val, DATABASE_SECRET);
-    
-    // Initialize received data
-    receivedData.boardId = 0;
-    receivedData.temperature = 52;
-    receivedData.humidity = 52;
-    receivedData.gas = 52;
-    receivedData.pressure = 52;
-    receivedData.current = 58;
-    receivedData.voltage = 255;
-    sendData(receivedData);
+    Firebase.setReadWriteRules(firebaseData, base_path, var, val, val, DATABASE_SECRET);    
   } else {
     Serial.println("Failed to initialize Firebase.");
   }
 }
 
 void loop() {
-  if (mySerial.available() > 8) {
-    Serial.println("Data available on Serial");
-    mySerial.readBytes((char*)&receivedData, sizeof(receivedData));
-    sendData(receivedData);
+  if (Serial2.available()) {
+    recv_jsondata = Serial2.readStringUntil('\n');
+    Serial.println(recv_jsondata);
+    
+    DeserializationError error = deserializeJson(doc_from_central, recv_jsondata);
+    if (!error) {
+      int boardId = doc_from_central["boardId"];
+      float temperature = doc_from_central["temperature"];
+      float humidity = doc_from_central["humidity"];
+      float airQuality = doc_from_central["airQuality"];
+      float pressure = doc_from_central["pressure"];
+      float current = doc_from_central["current"];
+      float voltage = doc_from_central["voltage"];
+      sentToFirebase(boardId, temperature, humidity, airQuality, pressure, current, voltage);
+      getFromFirebase(boardId);
+    }
+    recv_jsondata = "";
   } 
-
-  delay(100);
 }

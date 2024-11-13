@@ -2,6 +2,7 @@
 #include <esp_now.h>
 #include <esp_wifi.h>
 #include <WiFi.h>
+#include <ArduinoJson.h>
 
 // Library for the DHT22 sensor : Temperature and Humidity
 #include <DHT.h>
@@ -40,28 +41,11 @@ MQ135 mq135(MQ135PIN);     // Define the MQ135 sensor
 // MAC Address of the receiver
 uint8_t centralReceiver[] = { 0x88, 0x13, 0xbf, 0x63, 0xce, 0xb0 };
 
-// Structure to send data
-struct SensorData {
-  int boardId;
-  int sensorType;
-  float temperature;
-  float humidity;
-  float gas;
-  float pressure;
-  float current;
-  float voltage;
-};
-
-SensorData myData;
-
-// Structure to receive data
-struct RelayData {
-  int boardId;
-  bool relay1;
-  bool relay2;
-  bool relay3;
-  bool relay4;
-};
+// JSON Data Structure
+String recv_jsondata;
+String send_jsondata;
+StaticJsonDocument<256> doc_from_central;
+StaticJsonDocument<256> doc_to_central;
 
 // Function to read current from ACS712 sensor
 float getCurrentAC() {
@@ -71,55 +55,27 @@ float getCurrentAC() {
   return current;
 }
 
-// Function to read data from sensor
-SensorData readSensorData() {
-  SensorData data;
-  data.boardId = BOARD_ID;
-  data.sensorType = 1;
-  data.temperature = dht.readTemperature();
-  data.humidity = dht.readHumidity();
-
-  // Check if readings are valid
-  if (isnan(data.temperature) || isnan(data.humidity)) {
-    Serial.println("Failed to read from DHT sensor!");
-    data.temperature = 0.0;
-    data.humidity = 0.0;
-  }
-
-  data.gas = mq135.getCorrectedPPM(data.temperature, data.humidity);
-  data.pressure = bmp.readPressure() / 100000.0F;
-  data.current = getCurrentAC();
-  data.temperature = random(0, 100);
-  data.humidity = random(0, 100);
-  data.gas = random(0, 100);
-  data.pressure = 1;
-  data.current = random(0, 100);
-  data.voltage = 245;  // Voltage is constant
-
-  return data;
-}
-
 // Callback when data is received
 void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
-  if (memcmp(incomingData, "ping", 4) == 0) {
-    Serial.println("Ping received");
-    esp_now_send(centralReceiver, (uint8_t *)"pong", 4);
-  }
-
-  // Ensure the incoming data length is correct
-  if (len != sizeof(RelayData)) {
-    Serial.println("Received data length mismatch");
+  char* buff = (char*)incomingData;
+  recv_jsondata = String(buff);
+  Serial.print("Received Data: ");
+  Serial.println(recv_jsondata);
+  
+  DeserializationError error = deserializeJson(doc_from_central, recv_jsondata);
+  if (!error) {
+    bool relaypin1 = doc_from_central["relayPin1"];
+    bool relaypin2 = doc_from_central["relayPin2"];
+    bool relaypin3 = doc_from_central["relayPin3"];
+    bool relaypin4 = doc_from_central["relayPin4"];
+    setRelayState(RELAY_PIN1, relaypin1);
+    setRelayState(RELAY_PIN2, relaypin2);
+    setRelayState(RELAY_PIN3, relaypin3);
+    setRelayState(RELAY_PIN4, relaypin4);
+  } else {
+    Serial.print(F("deserializeJson() failed: "));
+    Serial.println(error.c_str());
     return;
-  }
-
-  RelayData data;
-  memcpy(&data, incomingData, sizeof(data));
-  // Check if the data is from the central receiver and intended for this board
-  if (memcmp(mac, centralReceiver, 6) == 0 && data.boardId == BOARD_ID) {
-    setRelayState(RELAY_PIN1, data.relay1);
-    setRelayState(RELAY_PIN2, data.relay2);
-    setRelayState(RELAY_PIN3, data.relay3);
-    setRelayState(RELAY_PIN4, data.relay4);
   }
 }
 
@@ -168,8 +124,8 @@ void setup() {
     Serial.println("Error initializing ESP-NOW");
     return;
   }
-
-  esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));  // Register the callback function to receive the data
+  
+  esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
 
   // Register the peer
   esp_now_peer_info_t peerInfo;
@@ -184,16 +140,35 @@ void setup() {
   } else {
     Serial.println("Peer added successfully");
   }
-  esp_now_register_send_cb(OnDataSent);  // Register the callback function to send the data
+
+  esp_now_register_send_cb(OnDataSent);
 }
 
 void loop() {
-  // Read sensor data
-  myData = readSensorData();
+  
+  // Read the sensor data
+  float temperature = dht.readTemperature();
+  float humidity = dht.readHumidity();
+  float airQuality = mq135.getCorrectedPPM(temperature, humidity);
+  float pressure = bmp.readPressure() / 100000.0F;
+  float current = getCurrentAC();
+  float voltage = current * 230.0;
 
+  // Prepare the JSON data
+  doc_to_central["boardId"] = BOARD_ID;
+  doc_to_central["temperature"] = temperature;
+  doc_to_central["humidity"] = humidity;
+  doc_to_central["airQuality"] = airQuality;
+  doc_to_central["pressure"] = pressure;
+  doc_to_central["current"] = current;
+  doc_to_central["voltage"] = voltage;
+  serializeJson(doc_to_central, send_jsondata);
+  
   // Send sensor data
-  esp_now_send(centralReceiver, (uint8_t *)&myData, sizeof(myData));
+  esp_now_send(centralReceiver, (uint8_t *) send_jsondata.c_str(), send_jsondata.length());
+  Serial.println(send_jsondata);
+  send_jsondata = "";
 
-  // Wait for 2 seconds before sending the next reading
-  delay(2000);
+  // Wait for 4 seconds before sending the next reading
+  delay(4000);
 }
