@@ -2,8 +2,8 @@
 
 ## Hardware Requirements
 
-- **ESP32**: Microcontrollers for Wi-Fi and IoT communication.
-- **Sensors**:
+- <u>**ESP32**</u>: Microcontrollers for Wi-Fi and IoT communication.
+- <u>**Sensors**</u>:
   - BMP180/BMP280: For temperature and pressure data.
   - DHT11/DHT22: For humidity and temperature data.
   - ACS712: For current measurement.
