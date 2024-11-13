@@ -58,7 +58,7 @@ void connectWiFi(const char* ssid, const char* password) {
 }
 
 void sentToFirebase(int boardId, float temperature, float humidity, float airQuality, float pressure, float current, float voltage) {
-  String path = "/devices/" + String(boardId)+ "/sensor";
+  String path = "/devices/" + String(boardId) + "/sensor";
   FirebaseJson json;
   json.set("temperature", temperature);
   json.set("humidity", humidity);
@@ -87,17 +87,37 @@ void getFromFirebase(int boardId) {
     bool relayPin1, relayPin2, relayPin3, relayPin4;
 
     // Use json.get to retrieve boolean values based on the JSON structure
-    if (json.get(jsonData, "1") && jsonData.typeNum == FirebaseJson::JSON_BOOL) {
+    // Retrieve and print each relay pin value
+    if (json.get(jsonData, "1")) {
+      Serial.print("Retrieved '1': ");
+      Serial.println(jsonData.boolValue ? "true" : "false");
       relayPin1 = jsonData.boolValue;
+    } else {
+      Serial.println("Failed to retrieve '1'");
     }
-    if (json.get(jsonData, "2") && jsonData.typeNum == FirebaseJson::JSON_BOOL) {
+
+    if (json.get(jsonData, "2")) {
+      Serial.print("Retrieved '2': ");
+      Serial.println(jsonData.boolValue ? "true" : "false");
       relayPin2 = jsonData.boolValue;
+    } else {
+      Serial.println("Failed to retrieve '2'");
     }
-    if (json.get(jsonData, "3") && jsonData.typeNum == FirebaseJson::JSON_BOOL) {
+
+    if (json.get(jsonData, "3")) {
+      Serial.print("Retrieved '3': ");
+      Serial.println(jsonData.boolValue ? "true" : "false");
       relayPin3 = jsonData.boolValue;
+    } else {
+      Serial.println("Failed to retrieve '3'");
     }
-    if (json.get(jsonData, "4") && jsonData.typeNum == FirebaseJson::JSON_BOOL) {
+
+    if (json.get(jsonData, "4")) {
+      Serial.print("Retrieved '4': ");
+      Serial.println(jsonData.boolValue ? "true" : "false");
       relayPin4 = jsonData.boolValue;
+    } else {
+      Serial.println("Failed to retrieve '4'");
     }
 
     // Assign to doc_to_central (assuming doc_to_central is ArduinoJson's JsonDocument or similar)
@@ -108,8 +128,9 @@ void getFromFirebase(int boardId) {
 
     // Serialize the JSON to send
     serializeJson(doc_to_central, send_jsondata);
+    Serial.println(send_jsondata);
     Serial2.println(send_jsondata);  // Send data via Serial2
-    send_jsondata = "";  // Clear the string buffer after sending
+    send_jsondata = "";              // Clear the string buffer after sending
 
   } else {
     Serial.print("Failed to get data: ");
@@ -119,7 +140,7 @@ void getFromFirebase(int boardId) {
 
 void setup() {
   Serial.begin(115200);
-  Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2); // Connect To ESP
+  Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2);  // Connect To ESP
 
   // Connect to Wi-Fi
   // Attempt to connect to ssid1 first
@@ -132,10 +153,10 @@ void setup() {
   }
 
   // Firebase configuration
-  firebaseConfig.api_key = API_KEY;              // Set the API key
-  firebaseConfig.database_url = DATABASE_URL;    // Add database URL
-  firebaseAuth.user.email = USER_EMAIL;          // Set user email
-  firebaseAuth.user.password = USER_PASSWORD;    // Set user password
+  firebaseConfig.api_key = API_KEY;            // Set the API key
+  firebaseConfig.database_url = DATABASE_URL;  // Add database URL
+  firebaseAuth.user.email = USER_EMAIL;        // Set user email
+  firebaseAuth.user.password = USER_PASSWORD;  // Set user password
 
   // Initialize Firebase with user authentication
   Firebase.reconnectNetwork(true);  // Reconnect automatically
@@ -146,17 +167,19 @@ void setup() {
     String base_path = "/devices";
     String var = "$userId";
     String val = "($userId === auth.uid)";
-    Firebase.setReadWriteRules(firebaseData, base_path, var, val, val, DATABASE_SECRET);    
+    Firebase.setReadWriteRules(firebaseData, base_path, var, val, val, DATABASE_SECRET);
+    Serial.println("Success to initialize Firebase");
   } else {
     Serial.println("Failed to initialize Firebase.");
   }
+  Serial.println("Setup Completed");
 }
 
 void loop() {
   if (Serial2.available()) {
     recv_jsondata = Serial2.readStringUntil('\n');
     Serial.println(recv_jsondata);
-    
+
     DeserializationError error = deserializeJson(doc_from_central, recv_jsondata);
     if (!error) {
       int boardId = doc_from_central["boardId"];
@@ -170,5 +193,5 @@ void loop() {
       getFromFirebase(boardId);
     }
     recv_jsondata = "";
-  } 
+  }
 }

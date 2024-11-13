@@ -9,7 +9,7 @@
 #include <Adafruit_Sensor.h>
 
 // Library for the BMP180 sensor : Temperature and Pressure
-#include <Adafruit_BMP085.h>
+#include <Adafruit_BMP280.h>
 
 // Library for the MQ135 sensor : Air/Gas Quality
 #include <MQ135.h>
@@ -35,7 +35,7 @@
 #define RELAY_PIN4 33
 
 DHT dht(DHTPIN, DHTTYPE);  // Define the DHT sensor type and pin
-Adafruit_BMP085 bmp;       // Define the BMP280 sensor
+Adafruit_BMP280 bmp;       // Define the BMP280 sensor
 MQ135 mq135(MQ135PIN);     // Define the MQ135 sensor
 
 // MAC Address of the receiver
@@ -112,8 +112,8 @@ void setup() {
   // Initialize the BMP280 sensor
   if (!bmp.begin()) {
     Serial.println("Could not find a valid BMP280 sensor, check wiring!");
-    while (1)
-      ;
+    // while (1)
+    //   ;
   }
 
   // Set device as a Wi-Fi Station
@@ -166,7 +166,7 @@ void loop() {
   
   // Send sensor data
   esp_now_send(centralReceiver, (uint8_t *) send_jsondata.c_str(), send_jsondata.length());
-  Serial.println(send_jsondata);
+  // Serial.println(send_jsondata);
   send_jsondata = "";
 
   // Wait for 4 seconds before sending the next reading
