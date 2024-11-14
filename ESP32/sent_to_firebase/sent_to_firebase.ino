@@ -75,67 +75,39 @@ void sentToFirebase(int boardId, float temperature, float humidity, float airQua
 }
 
 void getFromFirebase(int boardId) {
-  String path = "/devices/" + String(boardId) + "/relay";
-  if (Firebase.getJSON(firebaseData, path)) {
-    Serial.println("Data received successfully.");
-
-    // Convert firebaseData to FirebaseJson to access JSON data
-    FirebaseJson json = firebaseData.jsonObject();
-    FirebaseJsonData jsonData;
-
-    // Declare variables for relay pins
-    bool relayPin1, relayPin2, relayPin3, relayPin4;
-
-    // Use json.get to retrieve boolean values based on the JSON structure
-    // Retrieve and print each relay pin value
-    if (json.get(jsonData, "1")) {
-      Serial.print("Retrieved '1': ");
-      Serial.println(jsonData.boolValue ? "true" : "false");
-      relayPin1 = jsonData.boolValue;
+  doc_to_central["boardId"] = boardId;
+  for(int i=1;i<=4;i++) {
+    String path = "/devices/" + String(boardId) + "/relay/" + String(i);
+    
+    if (Firebase.getBool(firebaseData, path)) {
+      if (firebaseData.dataType() == "boolean") {
+        bool relayState = firebaseData.boolData();
+        // Serial.println("Relay " + String(i) + ": " + String(relayState));
+        
+        switch (i) {
+          case 1:
+            doc_to_central["relayPin1"] = relayState ? true : false;
+            break;
+          case 2:
+            doc_to_central["relayPin2"] = relayState ? true : false;
+            break;
+          case 3:
+            doc_to_central["relayPin3"] = relayState ? true : false;
+            break;
+          case 4:
+            doc_to_central["relayPin4"] = relayState ? true : false;
+            break;
+        }
+      }
     } else {
-      Serial.println("Failed to retrieve '1'");
+      Serial.println("Failed to get relay " + String(i) + " value: " + firebaseData.errorReason());
     }
-
-    if (json.get(jsonData, "2")) {
-      Serial.print("Retrieved '2': ");
-      Serial.println(jsonData.boolValue ? "true" : "false");
-      relayPin2 = jsonData.boolValue;
-    } else {
-      Serial.println("Failed to retrieve '2'");
-    }
-
-    if (json.get(jsonData, "3")) {
-      Serial.print("Retrieved '3': ");
-      Serial.println(jsonData.boolValue ? "true" : "false");
-      relayPin3 = jsonData.boolValue;
-    } else {
-      Serial.println("Failed to retrieve '3'");
-    }
-
-    if (json.get(jsonData, "4")) {
-      Serial.print("Retrieved '4': ");
-      Serial.println(jsonData.boolValue ? "true" : "false");
-      relayPin4 = jsonData.boolValue;
-    } else {
-      Serial.println("Failed to retrieve '4'");
-    }
-
-    // Assign to doc_to_central (assuming doc_to_central is ArduinoJson's JsonDocument or similar)
-    doc_to_central["relayPin1"] = relayPin1;
-    doc_to_central["relayPin2"] = relayPin2;
-    doc_to_central["relayPin3"] = relayPin3;
-    doc_to_central["relayPin4"] = relayPin4;
-
-    // Serialize the JSON to send
-    serializeJson(doc_to_central, send_jsondata);
-    Serial.println(send_jsondata);
-    Serial2.println(send_jsondata);  // Send data via Serial2
-    send_jsondata = "";              // Clear the string buffer after sending
-
-  } else {
-    Serial.print("Failed to get data: ");
-    Serial.println(firebaseData.errorReason());
   }
+  // Serialize the JSON to send
+  serializeJson(doc_to_central, send_jsondata);
+  Serial.println(send_jsondata);
+  Serial2.println(send_jsondata);
+  send_jsondata = "";
 }
 
 void setup() {
