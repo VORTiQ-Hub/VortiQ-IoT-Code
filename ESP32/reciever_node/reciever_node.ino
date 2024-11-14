@@ -1,7 +1,10 @@
+// 10:06:1c:f6:7a:34 + reciver Node 1
+
 // Import the libraries for the ESP-NOW communication
 #include <esp_now.h>
-#include <esp_wifi.h>
 #include <WiFi.h>
+
+// Library For Converting the data and senting it in the form of JSON
 #include <ArduinoJson.h>
 
 // Library for the DHT22 sensor : Temperature and Humidity
@@ -77,6 +80,7 @@ void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
     Serial.println(error.c_str());
     return;
   }
+  recv_jsondata = "";
 }
 
 // Helper function to set relay state
@@ -118,6 +122,7 @@ void setup() {
 
   // Set device as a Wi-Fi Station
   WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
 
   // Init ESP-NOW
   if (esp_now_init() != ESP_OK) {
@@ -125,7 +130,6 @@ void setup() {
     return;
   }
   
-  esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
 
   // Register the peer
   esp_now_peer_info_t peerInfo;
@@ -141,34 +145,38 @@ void setup() {
     Serial.println("Peer added successfully");
   }
 
+  esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
   esp_now_register_send_cb(OnDataSent);
 }
 
-void loop() {
-  
-  // Read the sensor data
-  float temperature = dht.readTemperature();
-  float humidity = dht.readHumidity();
-  float airQuality = mq135.getCorrectedPPM(temperature, humidity);
-  float pressure = bmp.readPressure() / 100000.0F;
-  float current = getCurrentAC();
-  float voltage = current * 230.0;
+unsigned long previousMillis = 0;
 
-  // Prepare the JSON data
-  doc_to_central["boardId"] = BOARD_ID;
-  doc_to_central["temperature"] = temperature;
-  doc_to_central["humidity"] = humidity;
-  doc_to_central["airQuality"] = airQuality;
-  doc_to_central["pressure"] = pressure;
-  doc_to_central["current"] = current;
-  doc_to_central["voltage"] = voltage;
-  serializeJson(doc_to_central, send_jsondata);
-  
-  // Send sensor data
-  esp_now_send(centralReceiver, (uint8_t *) send_jsondata.c_str(), send_jsondata.length());
-  // Serial.println(send_jsondata);
-  send_jsondata = "";
+void loop() {
+  unsigned long currentMillis = millis();
 
   // Wait for 4 seconds before sending the next reading
-  delay(4000);
+  if (currentMillis - previousMillis >= 4000) {
+    previousMillis = currentMillis;
+    // Read the sensor data
+    float temperature = dht.readTemperature();
+    float humidity = dht.readHumidity();
+    float airQuality = mq135.getCorrectedPPM(temperature, humidity);
+    float pressure = bmp.readPressure() / 100000.0F;
+    float current = getCurrentAC();
+    float voltage = current * 230.0;
+
+    // Prepare the JSON data
+    doc_to_central["boardId"] = BOARD_ID;
+    doc_to_central["temperature"] = temperature;
+    doc_to_central["humidity"] = humidity;
+    doc_to_central["airQuality"] = airQuality;
+    doc_to_central["pressure"] = pressure;
+    doc_to_central["current"] = current;
+    doc_to_central["voltage"] = voltage;
+    serializeJson(doc_to_central, send_jsondata);
+    
+    // Send sensor data
+    esp_now_send(centralReceiver, (uint8_t *) send_jsondata.c_str(), send_jsondata.length());
+    send_jsondata = "";
+  } 
 }

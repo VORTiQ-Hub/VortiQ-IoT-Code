@@ -104,8 +104,8 @@ void getFromFirebase(int boardId) {
     }
   }
   // Serialize the JSON to send
-  serializeJson(doc_to_central, send_jsondata);
-  Serial.println(send_jsondata);
+  Serial.print("Serilising To Serial2: ");
+  serializeJson(doc_from_receiver, send_jsondata);
   Serial2.println(send_jsondata);
   send_jsondata = "";
 }

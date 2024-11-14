@@ -1,6 +1,5 @@
 // Import the libraries
 #include <esp_now.h>
-#include <esp_wifi.h>
 #include <WiFi.h>
 #include <HardwareSerial.h>
 #include <ArduinoJson.h>
@@ -17,8 +16,6 @@
 typedef struct {
   uint8_t peer_addr[6];
   int boardId;
-  bool active;
-  unsigned long mills;
 } peer_t;
 peer_t peers[MAX_PEERS];
 
@@ -41,9 +38,8 @@ void printByteArray(const char* label, unsigned char* array, int length) {
 // Add a new peer to the list
 void addPeer(uint8_t* mac_addr, int boardId) {
   for (int i = 0; i < MAX_PEERS; i++) {
-    if (!peers[i].active) {
+    if (peers[i].boardId == -1) {
       memcpy(peers[i].peer_addr, mac_addr, 6);
-      peers[i].active = true;
       peers[i].boardId = boardId;
       esp_now_peer_info_t peerInfo = {};
       memcpy(peerInfo.peer_addr, mac_addr, 6);
@@ -56,28 +52,6 @@ void addPeer(uint8_t* mac_addr, int boardId) {
       }
       break;
     }
-  }
-}
-
-// Clear the peer data
-void clearPeer(const uint8_t* mac_addr) {
-  for (int i = 0; i < MAX_PEERS; i++) {
-    if (memcmp(peers[i].peer_addr, mac_addr, 6) == 0) {
-      peers[i].active = false;
-      removePeer(i);
-      break;
-    }
-  }
-}
-
-// Remove a peer from the list
-void removePeer(int index) {
-  if (index >= 0 && index < MAX_PEERS) {
-    esp_now_del_peer(peers[index].peer_addr);
-    for (int i = index; i < MAX_PEERS - 1; i++) {
-      peers[i] = peers[i + 1];
-    }
-    memset(&peers[MAX_PEERS - 1], 0, sizeof(peer_t));
   }
 }
 
@@ -103,76 +77,44 @@ bool isPeerInList(uint8_t* mac_addr) {
 
 // Callback when data is recieved
 void OnDataRecv(uint8_t* mac_addr, uint8_t* incomingData, uint8_t len) {
-  char * buff = (char *)incomingData;
+  char* buff = (char*)incomingData;
   recv_jsondata = String(buff);
-  Serial.print("Received Data: ");
-  Serial.println(recv_jsondata);
+  // Serial.println("Received Data");
+  // Serial.println(recv_jsondata);
+  
   DeserializationError error = deserializeJson(doc_from_receiver, recv_jsondata);
-  int boardId = doc_from_receiver["boardId"];
   if (!error) {
+    int boardId = doc_from_receiver["boardId"];
     if (!isPeerInList(mac_addr)) {
       addPeer(mac_addr, boardId);
     }
-    
-    for (int i = 0; i < MAX_PEERS; i++) {
-      if (memcmp(peers[i].peer_addr, mac_addr, 6) == 0) {
-        peers[i].mills = millis();
-        break;
-      }
-    }
 
-    Serial.print("Serilising To Serial2: ");
     serializeJson(doc_from_receiver, send_jsondata);
     Serial2.println(send_jsondata);
+    send_jsondata = "";
+    Serial.println("Data Sent: Central ESP -> Firebase ESP32");
   } else {
     Serial.print(F("deserializeJson() failed: "));
     Serial.println(error.c_str());
-    return;
-  }  
-
+  }
+  recv_jsondata ="";
 }
 
 // callback when data is sent
 void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
-  Serial.print("\r\nLast Packet Send Status:\t");
-  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
-}
-
-// Function to check if a peer is connected based on last activity
-bool isPeerConnected(int boardId) {
-  for (int i = 0; i < MAX_PEERS; i++) {
-    if (peers[i].boardId == boardId && peers[i].active) {
-      // Consider connected if last communication was within 60 seconds
-      if (millis() - peers[i].mills < 60000) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-void readMacAddress(){
-  uint8_t baseMac[6];
-  esp_err_t ret = esp_wifi_get_mac(WIFI_IF_STA, baseMac);
-  if (ret == ESP_OK) {
-    Serial.printf("%02x:%02x:%02x:%02x:%02x:%02x\n", baseMac[0], baseMac[1], baseMac[2], baseMac[3], baseMac[4], baseMac[5]);
-  } else {
-    Serial.println("Failed to read MAC address");
-  }
+  Serial.print("\r\nLast Packet Send Status:  ");
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success\n" : "Delivery Fail\n");
 }
 
 // Setup function
 void setup() {
   // Initialising UART Communication
   Serial.begin(115200);
-  Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2); // Connect To ESP
+  Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2);  // Connect To ESP
 
   // Initialising WiFi
   WiFi.mode(WIFI_STA);
-  
-  // Print the MAC address of the ESP32
-  Serial.print("ESP32 Board MAC Address: ");
-  readMacAddress();
+  WiFi.disconnect();
 
   // Initialising ESP-NOW
   if (esp_now_init() != ESP_OK) {
@@ -182,9 +124,7 @@ void setup() {
 
   // Initialising the peer list to empty
   for (int i = 0; i < MAX_PEERS; i++) {
-    peers[i].active = false;
     peers[i].boardId = -1;
-    peers[i].mills = 0;
   }
 
   // Defining Callback Functions
@@ -197,35 +137,26 @@ void setup() {
 
 // Main loop
 void loop() {
-  // Periodically check if peers are connected
-  for (int i = 0; i < MAX_PEERS; i++) {
-    if (peers[i].active && !isPeerConnected(peers[i].boardId)) {
-      Serial.printf("Peer %d is disconnected\n", peers[i].boardId);
-      peers[i].active = false;
-    }
-  }
-
-  // Check if there is any data available to read
   if (Serial2.available()) {
-    // Read the data from the serial port
-    String data = Serial2.readStringUntil('\n');
+    recv_jsondata = Serial2.readStringUntil('\n');
+    Serial.println(recv_jsondata);
 
-    // Serializing the data to JSON
-    serializeJson(doc_to_receiver, data);
-    Serial.println(data);
+    DeserializationError error = deserializeJson(doc_to_receiver, recv_jsondata);
+    if (!error) {
+      int boardID = doc_to_receiver["boardId"];
+      Serial.printf("Board ID: %d To Sent Data To Reciever\n", boardID);
 
-    // Send the data to the receiver
-    int boardID = doc_to_receiver["boardId"];
-    uint8_t* mac = getPeer(boardID);
-    if (mac != NULL) {
-      esp_err_t result = esp_now_send(mac, (uint8_t*)data.c_str(), data.length());
+      // Send the data to the receive
+      serializeJson(doc_to_receiver, send_jsondata);
+
+      esp_err_t result = esp_now_send(getPeer(boardID), (uint8_t *) send_jsondata.c_str(), send_jsondata.length());
       if (result == ESP_OK) {
-        Serial.println("Sent with success");
+        Serial.println("Data sent successfully to receiver");
       } else {
-        Serial.println("Error sending the data");
+        Serial.printf("Error in sending data: %d\n", result);
       }
-    } else {
-      Serial.println("Peer not found");
+      send_jsondata = "";
     }
+    recv_jsondata = "";
   }
 }
