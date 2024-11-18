@@ -1,8 +1,9 @@
 // 10:06:1c:f6:7a:34 + reciver Node 1
 
 // Import the libraries for the ESP-NOW communication
-#include <esp_now.h>
 #include <WiFi.h>
+#include <esp_now.h>
+#include <esp_wifi.h>
 
 // Library For Converting the data and senting it in the form of JSON
 #include <ArduinoJson.h>
@@ -11,7 +12,7 @@
 #include <DHT.h>
 #include <Adafruit_Sensor.h>
 
-// Library for the BMP180 sensor : Temperature and Pressure
+// Library for the BMP280 sensor : Temperature and Pressure
 #include <Adafruit_BMP280.h>
 
 // Library for the MQ135 sensor : Air/Gas Quality
@@ -22,8 +23,15 @@
 
 // Define: DHT11/22 Sensor Pins
 #define DHTPIN 5
-#define DHTTYPE DHT11
-// #define DHTTYPE DHT22
+#define DHTTYPE DHT22
+// #define DHTTYPE DHT11
+
+// Define: BMP280 Sensor Pins
+#define BMP_SCK 13
+#define BMP_MISO 12
+#define BMP_MOSI 11
+#define BMP_CS 10
+#define SEALEVELPRESSURE_HPA (1013.25)
 
 // Define: MQ135 Sensor Pins
 #define MQ135PIN 35
@@ -43,12 +51,23 @@ MQ135 mq135(MQ135PIN);     // Define the MQ135 sensor
 
 // MAC Address of the receiver
 uint8_t centralReceiver[] = { 0x88, 0x13, 0xbf, 0x63, 0xce, 0xb0 };
+uint8_t NodeAddress[6];
 
 // JSON Data Structure
 String recv_jsondata;
 String send_jsondata;
 StaticJsonDocument<256> doc_from_central;
 StaticJsonDocument<256> doc_to_central;
+
+// Get Mac Address
+void readMacAddress(){
+  esp_err_t ret = esp_wifi_get_mac(WIFI_IF_STA, NodeAddress);
+  if (ret == ESP_OK) {
+    Serial.printf("%02x:%02x:%02x:%02x:%02x:%02x\n", NodeAddress[0], NodeAddress[1], NodeAddress[2], NodeAddress[3], NodeAddress[4], NodeAddress[5]);
+  } else {
+    Serial.println("Failed to read MAC address");
+  }
+}
 
 // Function to read current from ACS712 sensor
 float getCurrentAC() {
@@ -114,11 +133,12 @@ void setup() {
   dht.begin();
 
   // Initialize the BMP280 sensor
-  if (!bmp.begin()) {
+  if (!bmp.begin(0x76)) {
     Serial.println("Could not find a valid BMP280 sensor, check wiring!");
-    // while (1)
-    //   ;
+    while (1)
+      ;
   }
+  bmp.setSampling(Adafruit_BMP280::MODE_NORMAL, Adafruit_BMP280::SAMPLING_X2, Adafruit_BMP280::SAMPLING_X16, Adafruit_BMP280::FILTER_X16, Adafruit_BMP280::STANDBY_MS_500);  // Operating Mode, Temp. oversampling, Pressure oversampling, Filtering, Standby time.
 
   // Set device as a Wi-Fi Station
   WiFi.mode(WIFI_STA);
@@ -129,7 +149,6 @@ void setup() {
     Serial.println("Error initializing ESP-NOW");
     return;
   }
-  
 
   // Register the peer
   esp_now_peer_info_t peerInfo;
@@ -147,6 +166,9 @@ void setup() {
 
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
   esp_now_register_send_cb(OnDataSent);
+
+  // Display MAC Address
+  readMacAddress();
 }
 
 unsigned long previousMillis = 0;
@@ -154,16 +176,23 @@ unsigned long previousMillis = 0;
 void loop() {
   unsigned long currentMillis = millis();
 
-  // Wait for 4 seconds before sending the next reading
-  if (currentMillis - previousMillis >= 4000) {
+  // Wait for 10 seconds before sending the next reading
+  if (currentMillis - previousMillis >= 10000) {
     previousMillis = currentMillis;
     // Read the sensor data
     float temperature = dht.readTemperature();
     float humidity = dht.readHumidity();
+    if (isnan(temperature) || isnan(humidity)) {
+      Serial.println("Failed to read from DHT sensor!");
+      return;
+    }
     float airQuality = mq135.getCorrectedPPM(temperature, humidity);
     float pressure = bmp.readPressure() / 100000.0F;
     float current = getCurrentAC();
     float voltage = current * 230.0;
+
+    char macAddress[18];
+    snprintf(macAddress, sizeof(macAddress), "%02X:%02X:%02X:%02X:%02X:%02X", NodeAddress[0], NodeAddress[1], NodeAddress[2], NodeAddress[3], NodeAddress[4], NodeAddress[5]);
 
     // Prepare the JSON data
     doc_to_central["boardId"] = BOARD_ID;
@@ -173,6 +202,7 @@ void loop() {
     doc_to_central["pressure"] = pressure;
     doc_to_central["current"] = current;
     doc_to_central["voltage"] = voltage;
+    doc_to_central["macAddress"] = macAddress;
     serializeJson(doc_to_central, send_jsondata);
     
     // Send sensor data

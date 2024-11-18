@@ -74,8 +74,9 @@ void sentToFirebase(int boardId, float temperature, float humidity, float airQua
   }
 }
 
-void getFromFirebase(int boardId) {
+void getFromFirebase(int boardId, const char* macAddress) {
   doc_to_central["boardId"] = boardId;
+  doc_to_central["macAddress"] = macAddress;
   for(int i=1;i<=4;i++) {
     String path = "/devices/" + String(boardId) + "/relay/" + String(i);
     
@@ -105,9 +106,10 @@ void getFromFirebase(int boardId) {
   }
   // Serialize the JSON to send
   Serial.print("Serilising To Serial2: ");
-  serializeJson(doc_from_receiver, send_jsondata);
+  serializeJson(doc_to_central, send_jsondata);
   Serial2.println(send_jsondata);
   send_jsondata = "";
+  doc_to_central.clear();
 }
 
 void setup() {
@@ -161,9 +163,12 @@ void loop() {
       float pressure = doc_from_central["pressure"];
       float current = doc_from_central["current"];
       float voltage = doc_from_central["voltage"];
+      const char* macAddress = doc_from_central["macAddress"];
+
       sentToFirebase(boardId, temperature, humidity, airQuality, pressure, current, voltage);
-      getFromFirebase(boardId);
+      getFromFirebase(boardId, macAddress);
     }
     recv_jsondata = "";
+    doc_from_central.clear();
   }
 }

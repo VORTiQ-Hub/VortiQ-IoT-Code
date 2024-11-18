@@ -98,6 +98,7 @@ void OnDataRecv(uint8_t* mac_addr, uint8_t* incomingData, uint8_t len) {
     Serial.println(error.c_str());
   }
   recv_jsondata ="";
+  doc_from_receiver.clear();
 }
 
 // callback when data is sent
@@ -144,12 +145,19 @@ void loop() {
     DeserializationError error = deserializeJson(doc_to_receiver, recv_jsondata);
     if (!error) {
       int boardID = doc_to_receiver["boardId"];
-      Serial.printf("Board ID: %d To Sent Data To Reciever\n", boardID);
+      const char* macAddress = doc_to_receiver["macAddress"];
+
+      uint8_t receiverAddress[6];
+      sscanf(macAddress, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", 
+             &receiverAddress[0], &receiverAddress[1], &receiverAddress[2], 
+             &receiverAddress[3], &receiverAddress[4], &receiverAddress[5]);
 
       // Send the data to the receive
       serializeJson(doc_to_receiver, send_jsondata);
 
-      esp_err_t result = esp_now_send(getPeer(boardID), (uint8_t *) send_jsondata.c_str(), send_jsondata.length());
+      Serial.printf("\n Receiver Node:- Board ID: %d MAC Address: ",boardID);
+      Serial.println(macAddress);
+      esp_err_t result = esp_now_send(receiverAddress, (uint8_t *) send_jsondata.c_str(), send_jsondata.length());
       if (result == ESP_OK) {
         Serial.println("Data sent successfully to receiver");
       } else {
@@ -158,5 +166,6 @@ void loop() {
       send_jsondata = "";
     }
     recv_jsondata = "";
+    doc_to_receiver.clear();
   }
 }
