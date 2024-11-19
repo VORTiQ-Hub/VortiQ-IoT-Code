@@ -51,7 +51,7 @@ MQ135 mq135(MQ135PIN);     // Define the MQ135 sensor
 
 // MAC Address of the receiver
 uint8_t centralReceiver[] = { 0x88, 0x13, 0xbf, 0x63, 0xce, 0xb0 };
-uint8_t NodeAddress[6];
+uint8_t NodeAddress[6];;
 
 // JSON Data Structure
 String recv_jsondata;
@@ -60,12 +60,18 @@ StaticJsonDocument<256> doc_from_central;
 StaticJsonDocument<256> doc_to_central;
 
 // Get Mac Address
-void readMacAddress(){
+void readMacAddress() {
+  // Get the MAC address of the ESP32
   esp_err_t ret = esp_wifi_get_mac(WIFI_IF_STA, NodeAddress);
+  
   if (ret == ESP_OK) {
-    Serial.printf("%02x:%02x:%02x:%02x:%02x:%02x\n", NodeAddress[0], NodeAddress[1], NodeAddress[2], NodeAddress[3], NodeAddress[4], NodeAddress[5]);
+    // Print the MAC address in the correct format
+    Serial.printf("MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n", 
+                  NodeAddress[0], NodeAddress[1], NodeAddress[2], 
+                  NodeAddress[3], NodeAddress[4], NodeAddress[5]);
   } else {
-    Serial.println("Failed to read MAC address");
+    // Print an error message if unable to fetch the MAC address
+    Serial.println("Error: Failed to read MAC address.");
   }
 }
 
@@ -117,6 +123,13 @@ void setup() {
   // Initialize serial monitor
   Serial.begin(115200);
 
+  // Set device as a Wi-Fi Station
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+
+  // Display MAC Address
+  readMacAddress();
+
   // Initialize relay control pins
   pinMode(RELAY_PIN1, OUTPUT);
   pinMode(RELAY_PIN2, OUTPUT);
@@ -140,10 +153,6 @@ void setup() {
   }
   bmp.setSampling(Adafruit_BMP280::MODE_NORMAL, Adafruit_BMP280::SAMPLING_X2, Adafruit_BMP280::SAMPLING_X16, Adafruit_BMP280::FILTER_X16, Adafruit_BMP280::STANDBY_MS_500);  // Operating Mode, Temp. oversampling, Pressure oversampling, Filtering, Standby time.
 
-  // Set device as a Wi-Fi Station
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
-
   // Init ESP-NOW
   if (esp_now_init() != ESP_OK) {
     Serial.println("Error initializing ESP-NOW");
@@ -166,9 +175,6 @@ void setup() {
 
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
   esp_now_register_send_cb(OnDataSent);
-
-  // Display MAC Address
-  readMacAddress();
 }
 
 unsigned long previousMillis = 0;

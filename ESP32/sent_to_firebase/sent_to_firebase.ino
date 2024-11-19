@@ -1,3 +1,5 @@
+// MAC: ec:64:c9:85:d5:c0
+
 #include <WiFi.h>
 #include <FirebaseESP32.h>
 #include <addons/TokenHelper.h>
@@ -57,6 +59,31 @@ void connectWiFi(const char* ssid, const char* password) {
   }
 }
 
+void sentToFirebaseMAC(int boardId, const char* mac_address) {
+  String path = "/devices/" + String(boardId) + "/data";
+
+  if (Firebase.getJSON(firebaseData, path)) {
+    if (firebaseData.dataType() != "null") {
+      Serial.println("Data exists in Firebase:");
+      Serial.println(firebaseData.jsonString());
+    } else {
+      Serial.println("Data doesn't exist. Adding new data...");
+      FirebaseJson json;
+      json.set("Room ID", boardId);
+      json.set("MAC Address", mac_address);
+      if (Firebase.setJSON(firebaseData, path, json)) {
+        Serial.println("Data Section Data Sent Successfully.");
+      } else {
+        Serial.print("Failed to add data section: ");
+        Serial.println(firebaseData.errorReason());
+      }
+    }
+  } else {
+    Serial.print("Failed to retrieve data: ");
+    Serial.println(firebaseData.errorReason());
+  }
+}
+
 void sentToFirebase(int boardId, float temperature, float humidity, float airQuality, float pressure, float current, float voltage) {
   String path = "/devices/" + String(boardId) + "/sensor";
   FirebaseJson json;
@@ -67,16 +94,16 @@ void sentToFirebase(int boardId, float temperature, float humidity, float airQua
   json.set("current", current);
   json.set("voltage", voltage);
   if (Firebase.setJSON(firebaseData, path, json)) {
-    Serial.println("Data sent successfully.");
+    Serial.println("Sensor Section Data Sent Successfully.");
   } else {
     Serial.print("Failed to send data: ");
     Serial.println(firebaseData.errorReason());
   }
 }
 
-void getFromFirebase(int boardId, const char* macAddress) {
+void getFromFirebase(int boardId) {
   doc_to_central["boardId"] = boardId;
-  doc_to_central["macAddress"] = macAddress;
+
   for(int i=1;i<=4;i++) {
     String path = "/devices/" + String(boardId) + "/relay/" + String(i);
     
@@ -152,7 +179,7 @@ void setup() {
 void loop() {
   if (Serial2.available()) {
     recv_jsondata = Serial2.readStringUntil('\n');
-    Serial.println(recv_jsondata);
+    Serial.printf("Received Data: "); Serial.println(recv_jsondata);
 
     DeserializationError error = deserializeJson(doc_from_central, recv_jsondata);
     if (!error) {
@@ -163,10 +190,11 @@ void loop() {
       float pressure = doc_from_central["pressure"];
       float current = doc_from_central["current"];
       float voltage = doc_from_central["voltage"];
-      const char* macAddress = doc_from_central["macAddress"];
+      const char* mac = doc_from_central["macAddress"];
 
+      sentToFirebaseMAC(boardId, mac);
       sentToFirebase(boardId, temperature, humidity, airQuality, pressure, current, voltage);
-      getFromFirebase(boardId, macAddress);
+      getFromFirebase(boardId);
     }
     recv_jsondata = "";
     doc_from_central.clear();

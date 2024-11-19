@@ -14,6 +14,7 @@
 
 // Structure to store the list of peer addresses
 typedef struct {
+  uint8_t sent_addr[6];
   uint8_t peer_addr[6];
   int boardId;
 } peer_t;
@@ -36,19 +37,30 @@ void printByteArray(const char* label, unsigned char* array, int length) {
 }
 
 // Add a new peer to the list
-void addPeer(uint8_t* mac_addr, int boardId) {
+void addPeer(uint8_t* mac_addr, int boardId, bool isSender) {
   for (int i = 0; i < MAX_PEERS; i++) {
-    if (peers[i].boardId == -1) {
-      memcpy(peers[i].peer_addr, mac_addr, 6);
+    if (peers[i].boardId == (isSender ? boardId : -1)) {
+      if (isSender) {
+        memcpy(peers[i].sent_addr, mac_addr, 6);
+      } else {
+        memcpy(peers[i].peer_addr, mac_addr, 6);
+      }
+
       peers[i].boardId = boardId;
+      
       esp_now_peer_info_t peerInfo = {};
       memcpy(peerInfo.peer_addr, mac_addr, 6);
       peerInfo.channel = 0;
       peerInfo.encrypt = false;
+      
       if (esp_now_add_peer(&peerInfo) != ESP_OK) {
         Serial.println("Failed to add peer");
       } else {
-        Serial.printf("Added new peer: %02X:%02X:%02X:%02X:%02X:%02X\n", mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+        if (isSender) {
+          Serial.printf("Added new peer for sending: %02X:%02X:%02X:%02X:%02X:%02X\n", mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+        } else {
+          Serial.printf("Added new peer on Recv: %02X:%02X:%02X:%02X:%02X:%02X\n", mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+        }
       }
       break;
     }
@@ -59,7 +71,7 @@ void addPeer(uint8_t* mac_addr, int boardId) {
 uint8_t* getPeer(int boardId) {
   for (int i = 0; i < MAX_PEERS; i++) {
     if (peers[i].boardId == boardId) {
-      return peers[i].peer_addr;
+      return peers[i].sent_addr;
     }
   }
   return NULL;  // Return NULL if peer with boardId is not found
@@ -70,6 +82,8 @@ bool isPeerInList(uint8_t* mac_addr) {
   for (int i = 0; i < MAX_PEERS; i++) {
     if (memcmp(peers[i].peer_addr, mac_addr, 6) == 0) {
       return true;
+    } else if (memcmp(peers[i].sent_addr, mac_addr, 6) == 0) {
+      return true;
     }
   }
   return false;
@@ -79,20 +93,26 @@ bool isPeerInList(uint8_t* mac_addr) {
 void OnDataRecv(uint8_t* mac_addr, uint8_t* incomingData, uint8_t len) {
   char* buff = (char*)incomingData;
   recv_jsondata = String(buff);
-  // Serial.println("Received Data");
-  // Serial.println(recv_jsondata);
+  Serial.printf("Data Sent: ");Serial.println(recv_jsondata);
   
   DeserializationError error = deserializeJson(doc_from_receiver, recv_jsondata);
   if (!error) {
     int boardId = doc_from_receiver["boardId"];
+    const char* macAddress = doc_from_receiver["macAddress"];
+
+    uint8_t receiverAddress[6];
+    sscanf(macAddress, "%02X:%02X:%02X:%02X:%02X:%02X", 
+            &receiverAddress[0], &receiverAddress[1], &receiverAddress[2], 
+            &receiverAddress[3], &receiverAddress[4], &receiverAddress[5]);
+
     if (!isPeerInList(mac_addr)) {
-      addPeer(mac_addr, boardId);
+      addPeer(mac_addr, boardId, false);
+      addPeer(receiverAddress, boardId, true);
     }
 
     serializeJson(doc_from_receiver, send_jsondata);
     Serial2.println(send_jsondata);
     send_jsondata = "";
-    Serial.println("Data Sent: Central ESP -> Firebase ESP32");
   } else {
     Serial.print(F("deserializeJson() failed: "));
     Serial.println(error.c_str());
@@ -103,7 +123,7 @@ void OnDataRecv(uint8_t* mac_addr, uint8_t* incomingData, uint8_t len) {
 
 // callback when data is sent
 void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
-  Serial.print("\r\nLast Packet Send Status:  ");
+  Serial.print("\rLast Packet Send Status:  ");
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success\n" : "Delivery Fail\n");
 }
 
@@ -140,30 +160,17 @@ void setup() {
 void loop() {
   if (Serial2.available()) {
     recv_jsondata = Serial2.readStringUntil('\n');
-    Serial.println(recv_jsondata);
+    Serial.printf("Received Data: ");Serial.println(recv_jsondata);
 
     DeserializationError error = deserializeJson(doc_to_receiver, recv_jsondata);
     if (!error) {
       int boardID = doc_to_receiver["boardId"];
-      const char* macAddress = doc_to_receiver["macAddress"];
-
-      uint8_t receiverAddress[6];
-      sscanf(macAddress, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", 
-             &receiverAddress[0], &receiverAddress[1], &receiverAddress[2], 
-             &receiverAddress[3], &receiverAddress[4], &receiverAddress[5]);
-
-      // Send the data to the receive
-      serializeJson(doc_to_receiver, send_jsondata);
-
-      Serial.printf("\n Receiver Node:- Board ID: %d MAC Address: ",boardID);
-      Serial.println(macAddress);
-      esp_err_t result = esp_now_send(receiverAddress, (uint8_t *) send_jsondata.c_str(), send_jsondata.length());
-      if (result == ESP_OK) {
-        Serial.println("Data sent successfully to receiver");
-      } else {
-        Serial.printf("Error in sending data: %d\n", result);
-      }
+      serializeJson(doc_to_receiver, send_jsondata);     
+      esp_err_t result = esp_now_send(getPeer(boardID), (uint8_t *) send_jsondata.c_str(), send_jsondata.length());
       send_jsondata = "";
+    } else {
+      Serial.print(F("deserializeJson() failed: "));
+      Serial.println(error.c_str());
     }
     recv_jsondata = "";
     doc_to_receiver.clear();
