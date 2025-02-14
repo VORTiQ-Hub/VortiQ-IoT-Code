@@ -14,3 +14,8 @@
 1. **ESP Configuration**: Sets up ESP32/ESP8266 as a Wi-Fi Access Point or connects to an existing network.
 2. **Data Communication**: Communication between multiple ESP modules using ESP-NOW or Wi-Fi.
 3. **Data Processing**: Reads data from sensors and structures it for real-time updates.
+
+## Version Control
+
+- **esp32**: Version 3.1.1 by espressif
+  - Git: https://github.com/espressif/arduino-esp32
