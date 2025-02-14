@@ -48,7 +48,7 @@ Adafruit_BMP280 bmp;       // Define the BMP280 sensor
 MQ135 mq135(MQ135PIN);     // Define the MQ135 sensor
 
 // MAC Address of the receiver
-uint8_t serverAddress[] = { 0xcc, 0xdb, 0xa7, 0x94, 0xf5, 0x60 };
+uint8_t serverAddress[] = { 0xfc, 0xe8, 0xc0, 0x7c, 0xaa, 0x90 };
 uint8_t clientMacAddress[6];
 
 // Structure to send data
@@ -132,7 +132,6 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
   Serial.println(sizeof(incomingData));
   uint8_t type = incomingData[0];
   switch (type) {
-    // we received data from server
     case DATA:     
       memcpy(&incomingReadings, incomingData, sizeof(incomingReadings));
       if (incomingReadings.boardID == BOARD_ID) {
@@ -187,7 +186,7 @@ void setup() {
     Serial.println("Could not find a valid BMP280 sensor, check wiring!");
   }
   bmp.setSampling(Adafruit_BMP280::MODE_NORMAL, Adafruit_BMP280::SAMPLING_X2, Adafruit_BMP280::SAMPLING_X16, Adafruit_BMP280::FILTER_X16, Adafruit_BMP280::STANDBY_MS_500);  // Operating Mode, Temp. oversampling, Pressure oversampling, Filtering, Standby time.
-  Serial.printf("and Initializes BMP280\n");
+  Serial.printf("Initializes BMP280 and ");
 
 
   if (esp_now_init() != ESP_OK) {
@@ -249,7 +248,7 @@ void loop() {
     // Read Pressure
     outgoingSetpoints.pressure = bmp.readPressure() / 100000.0F;
     if (outgoingSetpoints.pressure <= 0) {
-      outgoingSetpoints.pressure = random(95, 105) / 10.0;
+      outgoingSetpoints.pressure = 1.0;
     }
 
     // Read Current and Voltage
