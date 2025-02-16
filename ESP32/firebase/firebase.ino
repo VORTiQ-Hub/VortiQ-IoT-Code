@@ -10,7 +10,7 @@
 #define TXD2 17
 
 // Network credentials
-const char* ssid1 = "GNXS-2.4G-31C3F0";
+const char* ssid1 = "Bushi Connection";
 const char* password1 = "25051971";
 const char* ssid2 = "kl.rab_3490";
 const char* password2 = "KL.rab_3490";
@@ -60,39 +60,48 @@ void connectWiFi(const char* ssid, const char* password) {
 void sentToFirebaseMAC(int boardId, String mac_address) {
   String path = "/devices/" + String(boardId) + "/data";
   FirebaseJson json;
-  json.set("Room ID", boardId);
-  json.set("MAC Address", mac_address);
-
-  FirebaseJsonData jsonData; // Object to hold the retrieved data
+  FirebaseJsonData jsonData;
 
   // Fetch existing data from Firebase
   if (Firebase.getJSON(firebaseData, path)) {
     FirebaseJson existingJson = firebaseData.jsonObject();
-
-    String existingMac;
-    int existingBoardId;
-
-    // Extract existing values using FirebaseJsonData
-    if (existingJson.get(jsonData, "MAC Address")) {
-      existingMac = jsonData.stringValue;
-    }
-
-    if (existingJson.get(jsonData, "Room ID")) {
-      existingBoardId = jsonData.intValue;
-    }
-
-    // Compare with new values
-    if (existingBoardId == boardId && existingMac == mac_address) {
-      Serial.println("No changes detected. Data remains the same.");
-      return; // Exit without updating Firebase
+    
+    FirebaseJsonData macData;
+    if (existingJson.get(macData, "MAC Address")) {
+      // MAC Address exists in Firebase
+      if (macData.stringValue.equals(mac_address)) {
+        Serial.println("MAC Address already exists. Use updateStudentCount instead.");
+        return;
+      }
     }
   }
 
-  // If data is different or doesn't exist, update Firebase
+  // If MAC Address is missing or different, update all fields
+  json.set("Room ID", boardId);
+  json.set("MAC Address", mac_address);
+  json.set("Students", 0);
+  json.set("Status", "Inactive");
+
   if (Firebase.setJSON(firebaseData, path, json)) {
-    Serial.println("Data Section Data Sent Successfully.");
+    Serial.println("New data added successfully.");
   } else {
-    Serial.print("Failed to add data section: ");
+    Serial.print("Failed to add new data: ");
+    Serial.println(firebaseData.errorReason());
+  }
+}
+
+// Function to update only Students and Status
+void updateStudentCount(int boardId, int students) {
+  String path = "/devices/" + String(boardId) + "/data";
+  FirebaseJson updateJson;
+
+  updateJson.set("Students", students);
+  updateJson.set("Status", students != 0 ? "Active" : "Inactive");
+
+  if (Firebase.updateNode(firebaseData, path, updateJson)) {
+    Serial.println("Students and Status updated successfully.");
+  } else {
+    Serial.print("Failed to update Students and Status: ");
     Serial.println(firebaseData.errorReason());
   }
 }
@@ -237,7 +246,9 @@ void loop() {
         float pressure = doc_to_firebase["pressure"];
         float current = doc_to_firebase["current"];
         float voltage = doc_to_firebase["voltage"];
+        int users = doc_to_firebase["users"];
         sentToFirebase(boardID, temperature, humidity, gas, pressure, current, voltage);
+        updateStudentCount(boardID, users);
         getFromFirebase(boardID);
       }
     } else {

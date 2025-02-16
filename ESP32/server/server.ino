@@ -30,6 +30,7 @@ typedef struct struct_message {
   float pressure;
   float current;
   float voltage;
+  int users;
 } struct_message;
 
 // Structure to send data
@@ -153,6 +154,7 @@ void OnDataRecv(const uint8_t* mac_addr, const uint8_t* incomingData, int len) {
       doc_to_firebase["pressure"] = incomingReadings.pressure;
       doc_to_firebase["current"] = incomingReadings.current;
       doc_to_firebase["voltage"] = incomingReadings.voltage;
+      doc_to_firebase["users"] = incomingReadings.users;
       serializeJson(doc_to_firebase, send_jsondata);
       Serial.printf("Data Sent: ");
       Serial.println(send_jsondata);

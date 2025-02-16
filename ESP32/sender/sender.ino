@@ -14,8 +14,14 @@
 #include <DHT.h>
 #include <Adafruit_Sensor.h>
 
-// Library for the BMP280 sensor : Temperature and Pressure
-#include <Adafruit_BMP280.h>
+// Library for the BME280 sensor : Temperature and Pressure
+#include <Adafruit_BME280.h>
+
+// Library for the RFID-RC522 : Attendance
+#include <MFRC522v2.h>
+#include <MFRC522DriverSPI.h>
+#include <MFRC522DriverPinSimple.h>
+#include <SPI.h>
 
 // Set your Board and Server ID 
 #define BOARD_ID 201
@@ -24,11 +30,7 @@
 #define DHTPIN 5
 #define DHTTYPE DHT22
 
-// Define: BMP280 Sensor Pins
-#define BMP_SCK 13
-#define BMP_MISO 12
-#define BMP_MOSI 11
-#define BMP_CS 10
+// Define: BME280 Sensor Pins
 #define SEALEVELPRESSURE_HPA (1013.25)
 
 // Define: MQ135 Sensor Pins
@@ -37,6 +39,13 @@
 // Define: ACS712 Sensor Pins
 #define ACS712PIN 32
 
+// Define: RFID-RC522
+#define SS_PIN 17   // SS (SDA)
+#define RST_PIN 16  // RST
+#define MAXCards 5
+MFRC522DriverPinSimple ss_pin(SS_PIN);
+MFRC522DriverSPI driver(ss_pin);
+
 // Control 4 Relay
 #define RELAY_PIN1 27
 #define RELAY_PIN2 26
@@ -44,8 +53,81 @@
 #define RELAY_PIN4 33
 
 DHT dht(DHTPIN, DHTTYPE);  // Define the DHT sensor type and pin
-Adafruit_BMP280 bmp;       // Define the BMP280 sensor
+Adafruit_BME280 bme;       // Define the BME280 sensor
 MQ135 mq135(MQ135PIN);     // Define the MQ135 sensor
+MFRC522 rfid(driver);
+
+struct Card {
+  byte uid[10];  // UID can be up to 10 bytes
+  byte size;     // Store UID size
+};
+
+Card storedCards[MAXCards];
+int cardCount = 0;
+
+// Function to compare two UIDs
+bool compareUID(byte *uid1, byte *uid2, byte size) {
+  for (byte i = 0; i < size; i++) {
+    if (uid1[i] != uid2[i]) return false;
+  }
+  return true;
+}
+
+// Function to remove a card
+void removeCard(int index) {
+  for (int i = index; i < cardCount - 1; i++) {
+    storedCards[i] = storedCards[i + 1];
+  }
+  cardCount--;
+}
+
+// Function to print stored cards
+void printStoredCards() {
+  Serial.println("Stored Cards:");
+  for (int i = 0; i < cardCount; i++) {
+    Serial.print("Card ");
+    Serial.print(i + 1);
+    Serial.print(": ");
+    for (byte j = 0; j < storedCards[i].size; j++) {
+      Serial.print(storedCards[i].uid[j], HEX);
+      Serial.print(" ");
+    }
+    Serial.println();
+  }
+}
+
+// Function to handle card scanning
+void handleCardScan() {
+  if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) {
+    return;
+  }
+
+  byte *newUID = rfid.uid.uidByte;
+  byte newSize = rfid.uid.size;
+
+  // Check if card is already stored
+  for (int i = 0; i < cardCount; i++) {
+    if (compareUID(storedCards[i].uid, newUID, newSize)) {
+      Serial.println("Card Removed!");
+      removeCard(i);
+      printStoredCards();
+      return;
+    }
+  }
+
+  // If not found and space available, add new card
+  if (cardCount < MAXCards) {
+    memcpy(storedCards[cardCount].uid, newUID, newSize);
+    storedCards[cardCount].size = newSize;
+    cardCount++;
+    Serial.println("Card Added!");
+  } else {
+    Serial.println("Card storage full!");
+  }
+
+  printStoredCards();
+}
+
 
 // MAC Address of the receiver
 uint8_t serverAddress[] = { 0xfc, 0xe8, 0xc0, 0x7c, 0xaa, 0x90 };
@@ -61,6 +143,7 @@ typedef struct struct_message {
   float pressure;
   float current;
   float voltage;
+  int users;
 } struct_message;
 
 // Structure to receive data
@@ -134,7 +217,7 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
   switch (type) {
     case DATA:     
       memcpy(&incomingReadings, incomingData, sizeof(incomingReadings));
-      if (incomingReadings.boardID == BOARD_ID) {
+      if (incomingReadings.boardID == BOARD_ID && cardCount!=0) {
         Serial.print("ID  = ");
         Serial.println(incomingReadings.boardID);
         Serial.print("Relay 1 = ");Serial.println(incomingReadings.relay1);
@@ -145,6 +228,17 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
         SetRelayState(RELAY_PIN3, incomingReadings.relay3 == 1);
         Serial.print("Relay 4 = ");Serial.println(incomingReadings.relay4);
         SetRelayState(RELAY_PIN4, incomingReadings.relay4 == 1);
+      } else if (incomingReadings.boardID == BOARD_ID && cardCount==0) {
+        Serial.print("ID  = ");
+        Serial.println(incomingReadings.boardID);
+        Serial.print("Relay 1 = ");Serial.println(incomingReadings.relay1);
+        SetRelayState(RELAY_PIN1, false);
+        Serial.print("Relay 2 = ");Serial.println(incomingReadings.relay2);
+        SetRelayState(RELAY_PIN2, false);
+        Serial.print("Relay 3 = ");Serial.println(incomingReadings.relay3);
+        SetRelayState(RELAY_PIN3, false);
+        Serial.print("Relay 4 = ");Serial.println(incomingReadings.relay4);
+        SetRelayState(RELAY_PIN4, false);
       } else {
         Serial.printf("Data Of Wrong Board ID: %d",incomingReadings.boardID);
       }
@@ -181,12 +275,11 @@ void setup() {
   Serial.printf("Initialized DHT, ");
   Serial.printf("Initialized ACS, ");
 
-  // Initialize the BMP280 sensor
-  if (!bmp.begin()) {
-    Serial.println("Could not find a valid BMP280 sensor, check wiring!");
+  // Initialize the BME280 sensor
+  if (!bme.begin(0x76)) {
+    Serial.println("Could not find a valid BME280 sensor, check wiring!");
   }
-  bmp.setSampling(Adafruit_BMP280::MODE_NORMAL, Adafruit_BMP280::SAMPLING_X2, Adafruit_BMP280::SAMPLING_X16, Adafruit_BMP280::FILTER_X16, Adafruit_BMP280::STANDBY_MS_500);  // Operating Mode, Temp. oversampling, Pressure oversampling, Filtering, Standby time.
-  Serial.printf("Initializes BMP280 and ");
+  Serial.printf("Initializes BME280 and ");
 
 
   if (esp_now_init() != ESP_OK) {
@@ -212,6 +305,9 @@ void setup() {
   }
 
   Serial.println("Setup Completed");
+  SPI.begin();       // Initialize SPI
+  rfid.PCD_Init();   // Initialize RFID module
+  Serial.println("RFID Scanner Ready...");
 
   // Sending Pairing Message
   pairingData.msgType = PAIRING;
@@ -246,7 +342,7 @@ void loop() {
     }
 
     // Read Pressure
-    outgoingSetpoints.pressure = bmp.readPressure() / 100000.0F;
+    outgoingSetpoints.pressure = bme.readPressure() / 100000.0F;
     if (outgoingSetpoints.pressure <= 0) {
       outgoingSetpoints.pressure = 1.0;
     }
@@ -263,8 +359,10 @@ void loop() {
       outgoingSetpoints.voltage = voltage;
       outgoingSetpoints.current = current;
     }
+    outgoingSetpoints.users = cardCount;
 
     // Send the data
     esp_now_send(serverAddress, (uint8_t *) &outgoingSetpoints, sizeof(outgoingSetpoints));
+    handleCardScan();
   }
 }
