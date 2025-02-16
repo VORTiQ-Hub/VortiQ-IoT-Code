@@ -30,7 +30,7 @@ typedef struct struct_message {
   float pressure;
   float current;
   float voltage;
-  uint8_t clientAddress[6]; // Added client MAC address
+  int users;
 } struct_message;
 
 // Structure to send data
@@ -59,48 +59,49 @@ struct_message incomingReadings;
 
 // Stor MAC & BoardID
 struct BoardInfo {
-    uint32_t boardID;
-    uint8_t mac[6];
+  uint32_t boardID;
+  uint8_t mac[6];
 } boardList[MAX_PEERS];
-int boardCount = 0;
-bool storeBoardID(uint32_t boardID, const uint8_t mac[6]) {
-    // Check if the boardID already exists
-    for (int i = 0; i < boardCount; i++) {
-        if (boardList[i].boardID == boardID) {
-            memcpy(boardList[i].mac, mac, 6);  // Update existing MAC
-            Serial.println("Board ID updated.");
-            return true;
-        }
-    }
 
-    // If not found, add a new entry
-    if (boardCount < MAX_PEERS) {
-        boardList[boardCount].boardID = boardID;
-        memcpy(boardList[boardCount].mac, mac, 6);
-        boardCount++;  // Increase count
-        Serial.println("New Board ID stored.");
-        return true;
-    } else {
-        Serial.println("Board list is full!");
-        return false;
+int boardCount = 0;
+
+bool storeBoardID(uint32_t boardID, const uint8_t mac[6]) {
+  // Check if the boardID already exists
+  for (int i = 0; i < boardCount; i++) {
+    if (boardList[i].boardID == boardID) {
+      memcpy(boardList[i].mac, mac, 6);  // Update existing MAC
+      Serial.println("Board ID updated.");
+      return true;
     }
+  }
+
+  // If not found, add a new entry
+  if (boardCount < MAX_PEERS) {
+    boardList[boardCount].boardID = boardID;
+    memcpy(boardList[boardCount].mac, mac, 6);
+    boardCount++;  // Increase count
+    Serial.println("New Board ID stored.");
+    return true;
+  } else {
+    Serial.println("Board list is full!");
+    return false;
+  }
 }
 
 bool getMacFromBoardID(uint32_t boardID, uint8_t mac[6]) {
-    for (int i = 0; i < boardCount; i++) {
-        if (boardList[i].boardID == boardID) {
-            memcpy(mac, boardList[i].mac, 6);
-            return true;
-        }
+  for (int i = 0; i < boardCount; i++) {
+    if (boardList[i].boardID == boardID) {
+      memcpy(mac, boardList[i].mac, 6);
+      return true;
     }
-    return false; // Not found
+  }
+  return false; // Not found
 }
 
 // Printing MAC Address
 void printMAC(const uint8_t* mac_addr) {
   char macStr[18];
-  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x",
-           mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+  snprintf(macStr, sizeof(macStr), "%02x:%02x:%02x:%02x:%02x:%02x", mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
   Serial.print(macStr);
 }
 
@@ -140,9 +141,8 @@ void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
 }
 
 void OnDataRecv(const uint8_t* mac_addr, const uint8_t* incomingData, int len) {
-  uint8_t type = incomingData[0]; // first message byte is the type of message
+  uint8_t type = incomingData[0];
   switch (type) {
-    // the message is data type
     case DATA:
       send_jsondata = "";
       memcpy(&incomingReadings, incomingData, sizeof(incomingReadings));
@@ -154,13 +154,15 @@ void OnDataRecv(const uint8_t* mac_addr, const uint8_t* incomingData, int len) {
       doc_to_firebase["pressure"] = incomingReadings.pressure;
       doc_to_firebase["current"] = incomingReadings.current;
       doc_to_firebase["voltage"] = incomingReadings.voltage;
+      doc_to_firebase["users"] = incomingReadings.users;
       serializeJson(doc_to_firebase, send_jsondata);
       Serial.printf("Data Sent: ");
       Serial.println(send_jsondata);
       Serial2.println(send_jsondata);
+      send_jsondata = "";
+      doc_to_firebase.clear();
       break;
 
-    // the message is a pairing request
     case PAIRING:
       uint8_t clientMacAddress[6];
       memcpy(&pairingData, incomingData, sizeof(pairingData));
@@ -170,9 +172,8 @@ void OnDataRecv(const uint8_t* mac_addr, const uint8_t* incomingData, int len) {
       printMAC(clientMacAddress);
       Serial.println("");
 
-      if (pairingData.id == 0) { // do not replay to server itself
+      if (pairingData.id == 0) {
         if (pairingData.msgType == PAIRING) {
-          pairingData.id = 0; // 0 is server
           bool status = addPeer(clientMacAddress);
           if (status) {
             storeBoardID(pairingData.boardID, clientMacAddress);
@@ -187,9 +188,10 @@ void OnDataRecv(const uint8_t* mac_addr, const uint8_t* incomingData, int len) {
           Serial.printf("Data Sent: ");
           Serial.println(send_jsondata);
           Serial2.println(send_jsondata);
-          send_jsondata = "";
         }
       }
+      send_jsondata = "";
+      doc_to_firebase.clear();
       break;
   }
 }
